@@ -30,11 +30,12 @@ It is not adopted because they look different. On 1024x2:
   - With HICCUP, ridges that stand above ERA5's smooth surface get free-atmosphere wind. Over
     Wyoming, the correlation of lowest-level wind speed with model-minus-ERA5 surface height is
     +0.45 (in use) and +0.53 (bilinear). With the new tool it is −0.05, and ERA5's own
-    near-surface wind gives −0.07.
+    near-surface wind gives −0.07. The Sierra Nevada (+0.39 to +0.41 against −0.01) and the
+    Coast Mountains (+0.20 to +0.26 against −0.03) show the same pattern.
   - The cost is a smooth near-surface wind field that EAMxx must develop terrain structure from.
 - **Cost:**
   - At x4, 12 h 7 min and 413 GB of memory on one node with HICCUP, against an estimated
-    8–10 min with 19 GB per node on 8 nodes.
+    an estimated 8–10 min on 8 nodes (x3 used 72 GB per node).
   - At x2, 2 h 43 min with HICCUP against 7 min 55 s.
   - The new tool restarts from finished chunks and writes no temporary files.
 - **What did not change, and why that matters:**
@@ -257,16 +258,79 @@ Two cautions:
 
 The old behaviour remains available with `--wind-tf-depth 0`.
 
+### Steep terrain: Sierra Nevada and Coast Mountains
+
+Wyoming was used above because it is where the grid-scale noise in the x2 and x3 runs was first
+traced (`analysis/noise_zoom.py` in conus200). It is moderate terrain: the model surface is
+between −190 m and +300 m of ERA5's (5th to 95th percentile). Two steeper regions test the
+surface-pressure adjustment and the winds harder:
+- **Sierra Nevada**, 36–39.5N, 118–120.5W: −540 to +610 m.
+- **Coast Mountains around the x3 crash site**, 48.5–50.5N, 121–124W: −650 to +530 m.
+
+The script is the same (`terrain_metrics.py` with `BOX`, plus the hydrostatic check over the
+box). Here the hydrostatic check uses every column in the box rather than a sample: 500 hPa where
+ps > 700 hPa, and 300 hPa everywhere, because 300 hPa is above the ground in every column.
+Full output: [`results/regions.md`](results/regions.md).
+
+| Region (grid) | IC | z500 error, mean ± std (max) | z300 error, mean ± std (max) | corr(wind, dz) |
+|---|---|---|---|---|
+| Wyoming (x2) | HICCUP conservative (in use) | −2.7 ± 2.3 (10) m | −8.2 ± 3.6 (18) m | +0.45 |
+| | HICCUP bilinear | +1.4 ± 1.0 (8) m | +1.2 ± 1.5 (7) m | +0.53 |
+| | new tool | +0.4 ± 0.5 (3) m | +0.5 ± 0.5 (4) m | −0.05 |
+| Sierra Nevada (x2) | HICCUP conservative (in use) | +2.6 ± 6.3 (47) m | +8.6 ± 8.2 (61) m | +0.41 |
+| | HICCUP bilinear | +4.8 ± 7.3 (46) m | +6.3 ± 7.3 (45) m | +0.39 |
+| | new tool | −0.7 ± 1.0 (6) m | −0.8 ± 0.8 (5) m | −0.01 |
+| Coast Mountains (x2) | HICCUP conservative (in use) | +0.9 ± 2.0 (10) m | +4.8 ± 3.3 (20) m | +0.21 |
+| | HICCUP bilinear | +1.9 ± 2.0 (9) m | +1.7 ± 2.0 (8) m | +0.20 |
+| | new tool | −0.7 ± 0.4 (2) m | −0.9 ± 0.3 (2) m | −0.03 |
+| Coast Mountains (x3) | HICCUP conservative (in use) | +0.9 ± 2.0 (11) m | +4.8 ± 3.3 (20) m | +0.25 |
+| | HICCUP bilinear | +1.9 ± 2.0 (9) m | +1.7 ± 2.0 (9) m | +0.23 |
+| | new tool | −0.7 ± 0.4 (2) m | −0.9 ± 0.3 (2) m | −0.02 |
+
+ERA5's own near-surface wind gives a correlation of −0.04 to −0.07 in every region.
+
+- **The Sierra Nevada is the clearest case.**
+  - HICCUP's hydrostatic error has a spread of 6–8 m, up to 61 m. The column-to-column
+    pressure-gradient errors that implies are what the model must remove at start-up.
+  - The new tool stays within 1 m of spread and at most 6 m.
+  - The winds show the effect most visibly (figure below). East of the crest, where the model
+    terrain stands far above ERA5's, HICCUP and pressure matching put 7–9 m/s free-atmosphere
+    wind on the White Mountains and Nevada ridges. ERA5's own near-surface wind there is
+    2–3 m/s.
+- **In the Coast Mountains, near-surface winds were weak at this time** (1–2 m/s), so the
+  wind difference is small there in absolute terms, though the correlation still shows it. The
+  hydrostatic difference holds: HICCUP's spread is 2–3 m, the new tool's 0.3–0.4 m.
+- **The in-use conservative IC has a separate bias.** Its z300 error has a regional mean of
+  −8 to +9 m, a different sign in each region, consistent with the blocky interpolation and the
+  ERA5 grid offset. HICCUP bilinear removes most of it.
+
+![Lowest-level wind speed over the Sierra Nevada in each IC, and model-minus-ERA5 surface height](figures/wind_Sierra_Nevada.1024x2.png)
+
+![Lowest-level wind speed over the Coast Mountains in each IC, and model-minus-ERA5 surface height](figures/wind_Coast_Mountains.1024x2.png)
+
+**The x3 crash site itself.** Take the 178 x3 columns at 49.40–49.45N, 237.62–237.69E around
+the failing GLL points from Frontier job 5795246:
+- The model surface ranges from 134 to 1808 m within about 4 km, while ERA5's is a flat 630–720 m.
+- The three ICs agree there to within about 1 hPa in ps and 2 K in lowest-level T.
+- Near-surface winds are 1.0–1.4 m/s in all three, with at most 2.4 m/s in the lowest 10 levels.
+
+So the initial state at the crash site is calm and nearly the same in every IC, and a new IC is
+not expected to fix that crash. This agrees with the earlier finding that the dynamics became
+unstable within seconds, before physics ran, at the steepest slope on the grid.
+
 ### Cost
 
 | Grid (columns) | HICCUP bilinear, IC step | HICCUP map step | new tool |
 |---|---|---|---|
-| 1024x2 (71.2M) | 2 h 43 min, 207 GB peak, 1 node | 16 nodes, 31–69 GB/node, minutes | 7 min 55 s on 8 nodes (1 min 50 s of column work), 18.8 GB/node |
-| 1024x3 (117.2M) | 4 h 29 min, 202 GB peak, 1 node | as above | pending |
+| 1024x2 (71.2M) | 2 h 43 min, 207 GB peak, 1 node | 16 nodes, 31–69 GB/node, minutes | 7 min 55 s on 8 nodes (1 min 50 s of column work), 35–49 GB/node |
+| 1024x3 (117.2M) | 4 h 29 min, 202 GB peak, 1 node | as above | 12 min 52 s on 8 nodes (2 min 34 s of column work), 72 GB/node |
 | 1024x4 (300.0M) | 12 h 7 min, 413 GB peak, 1 node | as above | pending (estimated 8–10 min) |
 
-- **Memory.** The new tool's memory is set by the source data held in each task (the 137-level
-  ERA5 fields), not by the grid, so it does not grow with resolution.
+- **Memory.** The new tool's peak memory per node is sacct MaxRSS: 35–49 GB at x2 and 72 GB at
+  x3, out of 512 GB. It grows with the number of 1M-column chunks each task processes, so some
+  memory is not released between chunks. An earlier statement that memory does not depend on
+  grid size was wrong. Most of the time is spent outside the column work: start-up, reading the
+  source, and the final `check`.
 - **HICCUP's steps.** At x4, combining the per-variable temporary files took 4 h and the state
   adjustment 1 h. The earlier HICCUP x4 run (the 20260918 file) took more than a day, with over
   650 GB of temporary files.
@@ -278,8 +342,9 @@ The old behaviour remains available with `--wind-tf-depth 0`.
 
 ## Results on 1024x3 and 1024x4
 
-Pending: new-tool jobs 61220847 (x3) and 61220848 (x4) are queued. The same diagnostics will be
-run against HICCUP conservative (in use) and HICCUP bilinear at each resolution.
+x3 is done (job 61220847, `check` passed: z500 −0.36 ± 0.36 m, max 9.9 m), and its
+Coast Mountains results are above. x4 (job 61220848) is running. The global diagnostics for x3
+and x4 are still to be added.
 
 ## Tradeoffs: what this tool gives up
 
