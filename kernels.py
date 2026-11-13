@@ -301,7 +301,11 @@ def column_kernel(is_ml, a_full, b_full, a_half, b_half,
           u, v linear in ln(p) at a lookup pressure that is terrain-following
           near the ground and blends to the target pressure with height:
             p_look = pm * (1 + w * (ps/ps_m - 1)),
-            w = max(0, 1 - (ps_m - pm) / wind_tf_depth),
+            w = max(0, 1 - (ps_m - pm) / depth),
+            depth = wind_tf_depth, or 2*(ps_m - ps) where the model surface is
+            more than wind_tf_depth/2 below the source surface (keeps p_look
+            monotonic in deep valleys; with a fixed depth it folds beyond
+            ~wind_tf_depth*ps/ps_m),
           so the lowest model level takes the source wind at the same sigma
           (about the same height above the source surface) instead of the
           same pressure. With mismatched terrain, matching by pressure gives
@@ -421,10 +425,20 @@ def column_kernel(is_ml, a_full, b_full, a_half, b_half,
         # winds: lookup pressures (terrain-following near the ground); nodes
         # are the source levels only, so the lowest level is the bottom value
         plook = np.empty(nt)
+        # Blending depth: at least twice the depth of the model surface below the
+        # source surface. With a fixed depth D the lookup folds (stops being
+        # monotonic in height) once psm - ps > D*ps/psm (~125 hPa for 150 hPa),
+        # and the whole layer then takes the lowest source wind. Its slope is
+        # steepest at the surface, so it stays monotonic if D > (psm - ps)*psm/ps,
+        # which 2*(psm - ps) satisfies (psm/ps < 2); the layer then spans at least
+        # psm - ps of the source profile. Columns with psm - ps <= D/2 are unchanged.
+        depth = wind_tf_depth
+        if depth > 0.0 and psm > ps:
+            depth = max(depth, 2.0 * (psm - ps))
         for k in range(nt):
             w = 0.0
-            if wind_tf_depth > 0.0:
-                w = max(0.0, 1.0 - (psm - pm[k]) / wind_tf_depth)
+            if depth > 0.0:
+                w = max(0.0, 1.0 - (psm - pm[k]) / depth)
             plook[k] = pm[k] * (1.0 + w * (ps / psm - 1.0))
         for k in range(n):
             fn[k] = u_s[c, k]

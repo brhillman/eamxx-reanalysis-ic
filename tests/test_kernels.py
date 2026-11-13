@@ -165,6 +165,32 @@ def test_winds_terrain_following_near_surface():
     assert np.all(np.diff(u_tf[pm > 5e4]) < 0)                    # still monotone with height
 
 
+def test_winds_terrain_following_deep_valley():
+    """Model surface ~1.5 km (about 150 hPa) below the source surface. With a
+    fixed 150 hPa blending depth the lookup pressure folds and the lowest
+    ~150 hPa all take the lowest source wind. The per-column depth
+    max(D, 2*(psm - ps)) keeps the lookup monotonic, so the wind still varies
+    smoothly through the layer, starts from the near-surface source wind, and
+    joins pressure matching above the (deeper) blend."""
+    T, ps, zs = 280.0, 8.0e4, 2000 * K.G
+    phis = 500 * K.G
+    u_of_p = lambda p: 2.0 + 10.0 * (1.0 - p / ps) / 0.1
+    psm, _, u_tf, pm, ps_src = _column(T, ps, zs, phis, nsrc=137, u_of_p=u_of_p, tf=15000.0, full=True)
+    _, _, u_p, _, _ = _column(T, ps, zs, phis, nsrc=137, u_of_p=u_of_p, tf=0.0, full=True)
+    dp = psm - ps
+    assert dp > 15000.0 * ps / psm                         # a fixed 150 hPa depth would fold here
+    depth = 2.0 * dp
+    w = np.clip(1.0 - (psm - pm) / depth, 0.0, None)
+    plook = pm * (1.0 + w * (ps / psm - 1.0))
+    lay = pm > psm - depth
+    assert np.all(np.diff(plook) > 0)                      # monotonic: increases toward the surface
+    assert abs(u_tf[-1] - u_of_p(ps_src[-1])) < 0.3        # near-surface source wind at the bottom
+    assert np.all(np.diff(u_tf[lay]) < 0)                  # varies through the layer, monotone
+    assert len(np.unique(np.round(u_tf[lay], 6))) == lay.sum()
+    hi = pm < psm - depth
+    assert np.allclose(u_tf[hi], u_p[hi])                  # pressure matching above the blend
+
+
 def test_interp_lnp_any_matches_sorted():
     pn = np.sort(np.random.default_rng(3).uniform(1e3, 1e5, 40)); fn = np.sin(pn / 1e4)
     pt = np.random.default_rng(4).uniform(5e2, 1.1e5, 200)

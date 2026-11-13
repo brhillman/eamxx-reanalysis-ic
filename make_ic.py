@@ -115,7 +115,8 @@ def cmd_init(a):
                 'hypsometric interpolation within the source column (lapse-rate '
                 'extrapolation below the source surface); T linear in ln p; U,V linear in ln p '
                 + (f'at terrain-following lookup pressures blending to pressure matching over '
-                   f'{a.wind_tf_depth / 100:g} hPa above the surface' if a.wind_tf_depth > 0
+                   f'{a.wind_tf_depth / 100:g} hPa above the surface (or twice the depth of the model '
+                   f'surface below the source surface, if larger)' if a.wind_tf_depth > 0
                    else 'by pressure matching') + '; q and '
                 'tracers mass-conserving PLM remap; supersaturation (liquid, '
                 'Murphy-Koop) removed')
@@ -350,7 +351,9 @@ def main():
     i.add_argument('--horiz', choices=['bicubic', 'bilinear'], default='bicubic')
     i.add_argument('--wind-tf-depth', type=float, default=15000.0,
                    help='U/V: depth [Pa] over which the vertical lookup blends from terrain-following '
-                        '(at the surface) to pressure matching; 0 = pressure matching (default 15000)')
+                        '(at the surface) to pressure matching; 0 = pressure matching (default 15000). '
+                        'Increased per column to twice the depth of the model surface below the source '
+                        'surface where that is larger (deep valleys)')
     i.add_argument('--no-snow-to-ice', dest='snow_to_ice', action='store_false',
                    help='do not add snow (ERA5/IFS cswc) to cloud ice')
     i.add_argument('--chunk', type=int, default=1_000_000, help='columns per work unit')
