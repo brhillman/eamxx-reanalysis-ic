@@ -118,7 +118,7 @@ def cmd_init(a):
                 'Murphy-Koop) removed')
     o.input_files = ', '.join(inputs
                               + [a.topo, a.vert])
-    o.tool = f'eamxx-era5-ic make_ic.py rev {cfg["tool_rev"]}'
+    o.tool = f'eamxx-reanalysis-ic make_ic.py rev {cfg["tool_rev"]}'
     o.history = f'{cfg["created"]}: created'
 
     o['lat'][:] = t['lat_d'][:]
