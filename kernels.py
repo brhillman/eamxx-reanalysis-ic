@@ -257,10 +257,32 @@ def _interp_lnp(pn, fn, nn, pt, out, fbelow_lapse, Ts, ps, rgam):
             out[kt] = fn[k] + f * (fn[k + 1] - fn[k])
 
 
+@njit(cache=True)
+def _interp_lnp_any(pn, fn, nn, pt, out):
+    """Like _interp_lnp without the lapse-rate option, for target pressures in
+    any order (bisection per target). Outside [pn[0], pn[nn-1]]: end values."""
+    for kt in range(pt.size):
+        p = pt[kt]
+        if p <= pn[0]:
+            out[kt] = fn[0]
+        elif p >= pn[nn - 1]:
+            out[kt] = fn[nn - 1]
+        else:
+            lo, hi = 0, nn - 1
+            while hi - lo > 1:
+                mid = (lo + hi) // 2
+                if pn[mid] < p:
+                    lo = mid
+                else:
+                    hi = mid
+            f = (math.log(p) - math.log(pn[lo])) / (math.log(pn[hi]) - math.log(pn[lo]))
+            out[kt] = fn[lo] + f * (fn[hi] - fn[lo])
+
+
 @njit(parallel=True, cache=True)
 def column_kernel(is_ml, a_full, b_full, a_half, b_half,
                   ps_e, zs_e, phis_m, T_s, q_s, u_s, v_s, trc_s,
-                  hyam, hybm, hyai, hybi, P0,
+                  hyam, hybm, hyai, hybi, P0, wind_tf_depth,
                   T_o, q_o, u_o, v_o, trc_o, ps_o, diag):
     """Per destination column:
       - ERA5 column: full-level pressures p = a + b*ps (model levels) or the
@@ -274,8 +296,20 @@ def column_kernel(is_ml, a_full, b_full, a_half, b_half,
           below: extrapolated with the standard lapse rate from the ERA5
           surface virtual temperature, capped at 290.5 K (Trenberth et al. 1993).
       - Remap to target levels p = hyam*P0 + hybm*ps_m:
-          T, u, v linear in ln(p); below the ERA5 surface T follows the same
-          lapse rate as the ps extrapolation, u/v are held constant;
+          T linear in ln(p); below the ERA5 surface it follows the same
+          lapse rate as the ps extrapolation;
+          u, v linear in ln(p) at a lookup pressure that is terrain-following
+          near the ground and blends to the target pressure with height:
+            p_look = pm * (1 + w * (ps/ps_m - 1)),
+            w = max(0, 1 - (ps_m - pm) / wind_tf_depth),
+          so the lowest model level takes the source wind at the same sigma
+          (about the same height above the source surface) instead of the
+          same pressure. With mismatched terrain, matching by pressure gives
+          ridges above the source surface free-atmosphere winds and valleys
+          below it the held-constant lowest source wind. Temperature keeps
+          pressure matching so ps and T stay hydrostatically consistent.
+          wind_tf_depth <= 0: plain pressure matching, u/v held constant below
+          the source surface;
           q and tracers by mass-conserving PLM remap (constant below the
           ERA5 surface).
       - Remove supersaturation with respect to liquid (EAMxx's saturation
@@ -384,16 +418,22 @@ def column_kernel(is_ml, a_full, b_full, a_half, b_half,
         for k in range(nt):
             T_o[c, k] = tmp[k]
 
+        # winds: lookup pressures (terrain-following near the ground); nodes
+        # are the source levels only, so the lowest level is the bottom value
+        plook = np.empty(nt)
+        for k in range(nt):
+            w = 0.0
+            if wind_tf_depth > 0.0:
+                w = max(0.0, 1.0 - (psm - pm[k]) / wind_tf_depth)
+            plook[k] = pm[k] * (1.0 + w * (ps / psm - 1.0))
         for k in range(n):
             fn[k] = u_s[c, k]
-        fn[n] = u_s[c, n - 1]
-        _interp_lnp(pn, fn, n + 1, pm, tmp, False, 0.0, ps, 0.0)
+        _interp_lnp_any(pn, fn, n, plook, tmp)
         for k in range(nt):
             u_o[c, k] = tmp[k]
         for k in range(n):
             fn[k] = v_s[c, k]
-        fn[n] = v_s[c, n - 1]
-        _interp_lnp(pn, fn, n + 1, pm, tmp, False, 0.0, ps, 0.0)
+        _interp_lnp_any(pn, fn, n, plook, tmp)
         for k in range(nt):
             v_o[c, k] = tmp[k]
 

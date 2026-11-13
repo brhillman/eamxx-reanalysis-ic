@@ -113,7 +113,10 @@ def cmd_init(a):
     o.method = (f'horizontal {a.horiz} along source levels (moisture/condensate/ozone limited '
                 'to local 2x2 range; winds as 3D vectors); ps adjusted to PHIS_d by '
                 'hypsometric interpolation within the source column (lapse-rate '
-                'extrapolation below the source surface); T,U,V linear in ln p; q and '
+                'extrapolation below the source surface); T linear in ln p; U,V linear in ln p '
+                + (f'at terrain-following lookup pressures blending to pressure matching over '
+                   f'{a.wind_tf_depth / 100:g} hPa above the surface' if a.wind_tf_depth > 0
+                   else 'by pressure matching') + '; q and '
                 'tracers mass-conserving PLM remap; supersaturation (liquid, '
                 'Murphy-Koop) removed')
     o.input_files = ', '.join(inputs
@@ -158,7 +161,7 @@ def load_source(cfg):
     return src
 
 
-def process_chunk(src, vert, lat, lon, phis, cubic):
+def process_chunk(src, vert, lat, lon, phis, cubic, wind_tf_depth):
     jj, ii, wy, wx = K.horiz_stencil(lat, lon, float(src.lat[0]), float(src.lat[1] - src.lat[0]),
                                      src.lat.size, float(src.lon[0]), float(src.lon[1] - src.lon[0]),
                                      src.lon.size, cubic)
@@ -190,7 +193,7 @@ def process_chunk(src, vert, lat, lon, phis, cubic):
     diag = np.empty((n, 3))
     K.column_kernel(src.is_ml, src.a_full, src.b_full, src.a_half, src.b_half,
                     ps_e, zs_e, phis, T_s, q_s, u_s, v_s, trc_s,
-                    vert['hyam'], vert['hybm'], vert['hyai'], vert['hybi'], vert['P0'],
+                    vert['hyam'], vert['hybm'], vert['hyai'], vert['hybi'], vert['P0'], wind_tf_depth,
                     T_o, q_o, u_o, v_o, trc_o, ps_o, diag)
     out = {'T_mid': T_o, 'U': u_o, 'V': v_o, 'qv': q_o, 'ps': ps_o}
     for k, (_, name) in enumerate(TRACERS):
@@ -227,7 +230,8 @@ def cmd_run(a):
         phis = np.asarray(topo['PHIS_d'][c0:c1], np.float64)
         if not (np.isfinite(lat).all() and np.isfinite(lon).all() and np.isfinite(phis).all()):
             raise ValueError(f'non-finite topography/coordinates in columns {c0}:{c1}')
-        out, diag, ps_e = process_chunk(src, vert, lat, lon, phis, cfg['horiz'] == 'bicubic')
+        out, diag, ps_e = process_chunk(src, vert, lat, lon, phis, cfg['horiz'] == 'bicubic',
+                                        float(cfg.get('wind_tf_depth', 0.0)))
         for name, arr in out.items():
             if not np.isfinite(arr).all():
                 raise ValueError(f'non-finite {name} in columns {c0}:{c1}')
@@ -344,6 +348,9 @@ def main():
     i.add_argument('--date', required=True, help='YYYY-MM-DD')
     i.add_argument('--hour', required=True, type=int)
     i.add_argument('--horiz', choices=['bicubic', 'bilinear'], default='bicubic')
+    i.add_argument('--wind-tf-depth', type=float, default=15000.0,
+                   help='U/V: depth [Pa] over which the vertical lookup blends from terrain-following '
+                        '(at the surface) to pressure matching; 0 = pressure matching (default 15000)')
     i.add_argument('--no-snow-to-ice', dest='snow_to_ice', action='store_false',
                    help='do not add snow (ERA5/IFS cswc) to cloud ice')
     i.add_argument('--chunk', type=int, default=1_000_000, help='columns per work unit')

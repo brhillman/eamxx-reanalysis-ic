@@ -100,7 +100,7 @@ def test_remap_plm_conserves_and_bounds():
     assert out.min() >= 0 and out.max() <= q.max() * (1 + 1e-12)
 
 
-def _column(T, ps, zs, phis, q=0.0, nsrc=60):
+def _column(T, ps, zs, phis, q=0.0, nsrc=60, u_of_p=None, tf=15000.0, full=False):
     """Isothermal ERA5-like column on pressure-based hybrid levels."""
     ah = np.concatenate([np.linspace(0, 2e4, nsrc // 2 + 1)[:-1], np.linspace(2e4, 0, nsrc - nsrc // 2 + 1)])
     bh = np.concatenate([np.zeros(nsrc // 2), np.linspace(0, 1, nsrc - nsrc // 2 + 1)])
@@ -109,12 +109,16 @@ def _column(T, ps, zs, phis, q=0.0, nsrc=60):
     n, nt = 1, hyam.size
     Ts = np.full((n, nsrc), T); qs = np.full((n, nsrc), q)
     us = np.full((n, nsrc), 5.0); vs = np.full((n, nsrc), -3.0)
+    if u_of_p is not None:
+        us[0] = u_of_p(af + bf * ps)
     trc = np.full((1, n, nsrc), 2e-6)
     To, qo, uo, vo = (np.empty((n, nt)) for _ in range(4))
     tro = np.empty((1, n, nt)); pso = np.empty(n); diag = np.empty((n, 3))
     K.column_kernel(True, af, bf, ah, bh, np.array([ps]), np.array([zs]), np.array([phis]),
-                    Ts, qs, us, vs, trc, hyam, hybm, hyai, hybi, 1e5,
+                    Ts, qs, us, vs, trc, hyam, hybm, hyai, hybi, 1e5, tf,
                     To, qo, uo, vo, tro, pso, diag)
+    if full:
+        return pso[0], To[0], uo[0], hyam * 1e5 + hybm * pso[0], af + bf * ps
     return pso[0], To[0], qo[0], uo[0], tro[0, 0], diag[0]
 
 
@@ -137,6 +141,37 @@ def test_ps_adjust_downward_lapse_rate():
     # extrapolation from the surface temperature with 6.5 K/km
     assert 1.0 < psm / ps < 1.03 and abs(diag[0] - 200) < 1e-6
     assert To[-1] > T                                             # warmer below the ERA5 surface
+
+
+def test_winds_terrain_following_near_surface():
+    """Model surface 300 m above the source surface; source wind increases
+    with height above the source ground (a boundary layer). Terrain-following:
+    the lowest model level gets the source wind at the same sigma (near-surface
+    value); pressure matching gets the faster wind from 300 m up. Well above
+    the blending depth both agree."""
+    T, ps, zs = 280.0, 9.0e4, 1000 * K.G
+    phis = 1300 * K.G
+    u_of_p = lambda p: 2.0 + 10.0 * (1.0 - p / ps) / 0.1        # 2 m/s at ps, +10 m/s per 100 hPa
+    psm, To, u_tf, pm, ps_src = _column(T, ps, zs, phis, nsrc=137, u_of_p=u_of_p, tf=15000.0, full=True)
+    _, To0, u_p, _, _ = _column(T, ps, zs, phis, nsrc=137, u_of_p=u_of_p, tf=0.0, full=True)
+    assert np.allclose(To, To0)                                   # T unaffected
+    w = 1.0 - (psm - pm[-1]) / 15000.0                            # ~0.99 at the lowest level
+    expect = u_of_p(pm[-1] * (1.0 + w * (ps / psm - 1.0)))        # ~ same-sigma source wind
+    assert abs(u_tf[-1] - expect) < 0.05, (u_tf[-1], expect)
+    assert abs(u_tf[-1] - u_of_p(pm[-1] * ps / psm)) < 0.2
+    assert u_p[-1] > u_tf[-1] + 2.0                               # pressure matching: faster
+    hi = pm < psm - 15000.0
+    assert np.allclose(u_tf[hi], u_p[hi])                         # identical above the blend
+    assert np.all(np.diff(u_tf[pm > 5e4]) < 0)                    # still monotone with height
+
+
+def test_interp_lnp_any_matches_sorted():
+    pn = np.sort(np.random.default_rng(3).uniform(1e3, 1e5, 40)); fn = np.sin(pn / 1e4)
+    pt = np.random.default_rng(4).uniform(5e2, 1.1e5, 200)
+    a = np.empty(200); K._interp_lnp_any(pn, fn, 40, pt, a)
+    o = np.argsort(pt); b = np.empty(200)
+    K._interp_lnp(pn, fn, 40, pt[o], b, False, 0.0, 1e5, 0.0)
+    assert np.allclose(a[o], b)
 
 
 def test_supersaturation_removed():

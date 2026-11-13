@@ -58,8 +58,12 @@ How each source is read:
    - Where the model surface is above the source surface, ln p is interpolated in geopotential within the source column. No lapse rate is assumed.
    - Where it is below, values are extrapolated with 6.5 K/km from the source surface virtual temperature, capped at 290.5 K as in Trenberth et al. (1993). The same profile gives T below the source surface, so ps and T are hydrostatically consistent.
 4. **Vertical remap** to the target hybrid levels `hyam·P0 + hybm·ps`:
-   - T, U and V are interpolated linearly in ln p.
-   - Below the source surface, T follows the same lapse rate as the ps extrapolation, and U and V are held constant.
+   - T is interpolated linearly in ln p. Below the source surface it follows the same lapse rate as the ps extrapolation.
+   - U and V are interpolated linearly in ln p at a lookup pressure that is terrain-following at the ground
+     (the same p/ps as the target level) and blends to plain pressure matching over the lowest 150 hPa
+     (`--wind-tf-depth`, 0 = pressure matching). Matching by pressure alone gives ridges that stand above the
+     smoother source terrain free-atmosphere winds, and valleys below it the lowest source wind, which shows up as
+     sharp, terrain-shaped patches once model-level input resolves the source's surface layer.
    - qv, qc, qi and ozone are remapped with a mass-conserving piecewise-linear method whose slopes are limited. This conserves column mass between the source surface and the model top, and creates no new extremes.
 5. **State adjustment**:
    - Supersaturation with respect to liquid is removed, using EAMxx's Murphy–Koop formula. Supersaturation over ice is allowed up to liquid saturation, as in P3.
