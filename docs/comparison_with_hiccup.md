@@ -6,7 +6,7 @@ at 2011-05-19 18Z from ERA5. It sets out how the methods differ, measures the ef
 difference with the same diagnostics on the same columns, and lists what this tool gives up
 or has not yet shown.
 
-Status: 1024x2 is complete. The 1024x3 and 1024x4 sections are filled in when those runs finish.
+Status: complete for 1024x2, 1024x3 and 1024x4 (IC diagnostics). No EAMxx run from these ICs yet.
 
 ## Summary
 
@@ -34,8 +34,8 @@ It is not adopted because they look different. On 1024x2:
     Coast Mountains (+0.20 to +0.26 against −0.03) show the same pattern.
   - The cost is a smooth near-surface wind field that EAMxx must develop terrain structure from.
 - **Cost:**
-  - At x4, 12 h 7 min and 413 GB of memory on one node with HICCUP, against an estimated
-    an estimated 8–10 min on 8 nodes (x3 used 72 GB per node).
+  - At x4, 12 h 7 min and 413 GB of memory on one node with HICCUP, against 30 min on 8 nodes
+    (6.6 min of column work, 145 GB per node).
   - At x2, 2 h 43 min with HICCUP against 7 min 55 s.
   - The new tool restarts from finished chunks and writes no temporary files.
 - **What did not change, and why that matters:**
@@ -324,10 +324,10 @@ unstable within seconds, before physics ran, at the steepest slope on the grid.
 |---|---|---|---|
 | 1024x2 (71.2M) | 2 h 43 min, 207 GB peak, 1 node | 16 nodes, 31–69 GB/node, minutes | 7 min 55 s on 8 nodes (1 min 50 s of column work), 35–49 GB/node |
 | 1024x3 (117.2M) | 4 h 29 min, 202 GB peak, 1 node | as above | 12 min 52 s on 8 nodes (2 min 34 s of column work), 72 GB/node |
-| 1024x4 (300.0M) | 12 h 7 min, 413 GB peak, 1 node | as above | pending (estimated 8–10 min) |
+| 1024x4 (300.0M) | 12 h 7 min, 413 GB peak, 1 node | as above | 29 min 53 s on 8 nodes (6 min 36 s of column work), 145 GB/node |
 
-- **Memory.** The new tool's peak memory per node is sacct MaxRSS: 35–49 GB at x2 and 72 GB at
-  x3, out of 512 GB. It grows with the number of 1M-column chunks each task processes, so some
+- **Memory.** The new tool's peak memory per node is sacct MaxRSS: 35–49 GB at x2, 72 GB at x3
+  and 145 GB at x4, out of 512 GB. It grows with the number of 1M-column chunks each task processes, so some
   memory is not released between chunks. An earlier statement that memory does not depend on
   grid size was wrong. Most of the time is spent outside the column work: start-up, reading the
   source, and the final `check`.
@@ -342,9 +342,29 @@ unstable within seconds, before physics ran, at the steepest slope on the grid.
 
 ## Results on 1024x3 and 1024x4
 
-x3 is done (job 61220847, `check` passed: z500 −0.36 ± 0.36 m, max 9.9 m), and its
-Coast Mountains results are above. x4 (job 61220848) is running. The global diagnostics for x3
-and x4 are still to be added.
+Both passed `check`: z500 −0.36 ± 0.36 m (max 9.9 m) at x3, and −0.34 ± 0.36 m (max 6.4 m) at
+x4. The same diagnostics as for 1024x2 were run on 30,000 sampled columns per grid. Full output:
+[`results/comparison.1024x3.md`](results/comparison.1024x3.md) and
+[`results/comparison.1024x4.md`](results/comparison.1024x4.md).
+
+| Metric | x3: HICCUP in use | x3: HICCUP bilinear | x3: new | x4: HICCUP in use | x4: HICCUP bilinear | x4: new |
+|---|---|---|---|---|---|---|
+| points with RH > 100 % (of 3.84M) | 20,730 | 19,096 | 0 | 22,524 | 16,361 | 0 |
+| file `phis` − `PHIS_d`, rms | 183 m | 124 m | 0 | 154 m | 118 m | 0 |
+| z500 error, mean ± std | +0.59 ± 6.22 m | +0.19 ± 3.13 m | −0.37 ± 0.44 m | +0.84 ± 3.61 m | +0.04 ± 1.18 m | −0.38 ± 0.33 m |
+| z500 error, 99th percentile / max of \|error\| | 16.0 / 94.9 m | 11.0 / 70.9 m | 1.7 / 10.4 m | 12.9 / 17.5 m | 4.1 / 11.3 m | 1.4 / 2.8 m |
+| z500 error where surfaces differ > 300 m, mean ± std | +4.80 ± 14.75 m | +3.33 ± 6.94 m | −0.53 ± 0.80 m | +1.37 ± 3.61 m | +1.17 ± 1.69 m | −0.60 ± 0.31 m |
+| T − ERA5 at the top level | +7.5 ± 4.4 K | +7.6 ± 4.4 K | 0.0 ± 0.1 K | +8.7 ± 2.5 K | +8.7 ± 2.5 K | 0.0 ± 0.1 K |
+| column water vapour − ERA5, surfaces within 20 m | +0.39 % | +0.26 % | +0.03 % | +0.48 % | +0.14 % | −0.15 % |
+| corr(wind, dz), Wyoming | +0.45 | +0.53 | −0.05 | +0.45 | +0.54 | −0.05 |
+
+- The conclusions from 1024x2 hold at both resolutions.
+- The tail statistics (99th percentile, max, and the > 300 m subset) depend on which steep
+  columns land in each grid's random sample. The samples differ between grids, because the
+  column counts differ. The x3 sample happens to include worse columns than the x4 sample, so
+  compare tools within a column of the table, not across grids.
+- The new tool's statistics are nearly the same at every resolution. HICCUP's vary with the
+  sample, by up to a factor of 3 in spread.
 
 ## Tradeoffs: what this tool gives up
 

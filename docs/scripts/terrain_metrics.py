@@ -68,7 +68,11 @@ if pl_f:
     zref = {p: ip(np.squeeze(e['z'][0, int(np.where(np.isclose(eplev, p))[0][0])]) / 9.80616) for p in (500, 300)}
 for n, f in files.items():
     d = nc.Dataset(f)
-    T, q, u, v = (rd(d, x, 127) for x in ['T_mid', 'qv', 'U', 'V'])
+    T, q = (rd(d, x, 127) for x in ['T_mid', 'qv'])
+    if 'U' in d.variables:
+        u, v = rd(d, 'U', 127), rd(d, 'V', 127)
+    else:   # older HICCUP files: horiz_winds(time, ncol, dim2, lev)
+        u, v = (np.concatenate([np.asarray(d['horiz_winds'][0, r[0]:r[-1] + 1, c, 127]) for r in runs]).astype(float) for c in (0, 1))
     speeds[n] = np.hypot(u, v)
     row(n, f'{rough(T):.3f}', f'{rough(q) * 1e3:.4f}', f'{rough(u):.3f}', speeds[n])
     if pl_f:
