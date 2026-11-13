@@ -6,7 +6,10 @@ at 2011-05-19 18Z from ERA5. It sets out how the methods differ, measures the ef
 difference with the same diagnostics on the same columns, and lists what this tool gives up
 or has not yet shown.
 
-Status: complete for 1024x2, 1024x3 and 1024x4 (IC diagnostics). No EAMxx run from these ICs yet.
+Status: complete for 1024x2, 1024x3 and 1024x4 (IC diagnostics). Uniform ne30, ne120 and ne256
+grids added, with the new tool also run on ERA5 pressure levels to separate method from input
+data ([Uniform grids](#uniform-grids-ne30-ne120-ne256)). HICCUP default-map files for ne120 and
+ne256, and EAMxx test runs at ne30 and ne120, are in progress.
 
 ## Summary
 
@@ -47,6 +50,13 @@ It is not adopted because they look different. On 1024x2:
 - **Different by choice:** the new tool adds ERA5 snow to cloud ice, so column `qi` is 2.8× HICCUP's
   (0.050 against 0.018 kg/m²). See [Condensate](#condensate-snow-in-cloud-ice). `--no-snow-to-ice`
   gives HICCUP's choice.
+- **Method or input data?** Running the new tool on the same ERA5 pressure levels HICCUP reads
+  (uniform grids) separates the two:
+  - From the method: no supersaturation, `phis` consistent with the model surface, and part of
+    the hydrostatic gain (z500 spread 1.9 → 1.3–1.5 m).
+  - From the model-level input: most of the hydrostatic gain (1.3–1.5 → 0.3–0.5 m), the
+    upper levels (the +5.6 K top-level error is identical with pressure-level input in either
+    tool), and realistic near-surface winds where the model surface is below ERA5's.
 - **Not yet shown:** no EAMxx simulation has been run from these ICs. The decisive test is a short
   x2 run from each IC, comparing first-hour noise and surface-pressure tendencies. See
   [Validation still needed](#validation-still-needed).
@@ -366,6 +376,99 @@ x4. The same diagnostics as for 1024x2 were run on 30,000 sampled columns per gr
 - The new tool's statistics are nearly the same at every resolution. HICCUP's vary with the
   sample, by up to a factor of 3 in spread.
 
+## Uniform grids: ne30, ne120, ne256
+
+To check that the conclusions are not specific to the CONUS grids, and to separate the effect of
+the method from that of the input data, ICs were made on the standard uniform EAMxx grids
+(ne30np4: 48,602 columns; ne120np4: 777,602; ne256np4: 3,538,946), same date, L128v4, each on the
+grid's default EAMxx topography (`USGS-gtopo30_ne{30,256}np4pg2_x6t-SGH.c20210614.nc`,
+`USGS-gtopo30_ne120np4pg2_x6t_20230404.nc`). Four ICs per grid:
+
+| Label | Input | Method |
+|---|---|---|
+| HICCUP default | ERA5 pressure levels | HICCUP's out-of-the-box workflow: it makes the grids and an `ncremap fv2se_flx` (conservative, TempestRemap) map itself |
+| HICCUP bilinear | ERA5 pressure levels | HICCUP with an ESMF bilinear map to the GLL nodes, as for the regenerated CONUS files |
+| new tool, pressure levels | ERA5 pressure levels (the same files HICCUP reads) | this tool, `SOURCE=era5-pl` |
+| new tool | ERA5 model levels | this tool, `SOURCE=era5-ml` |
+
+HICCUP bilinear and the new tool on pressure levels share the input, so differences between them
+are the method's. The two new-tool rows share the method, so differences between them are the
+input's.
+
+The default topography files have `PHIS_d` but no `lat_d`/`lon_d`, which this tool needs. The
+coordinates were taken from the HICCUP ne*np4 ICs in inputdata (same TempestRemap node order,
+confirmed by correlating their `phis` with `PHIS_d`: 0.996–0.999), with
+`scripts/uniform/make_ne_topo.py`.
+
+### ne30 (all columns)
+
+Full output: [`results/uniform.ne30np4.md`](results/uniform.ne30np4.md).
+
+| Metric | HICCUP default | HICCUP bilinear | new tool, pressure levels | new tool |
+|---|---|---|---|---|
+| points with RH > 100 % (of 6.2M) | 3,756 | 9,868 | 0 | 0 |
+| file `phis` − `PHIS_d`, rms / max | 59 / 1126 m | 101 / 1625 m | 0 | 0 |
+| z500 error, mean ± std | −0.14 ± 5.02 m | −0.27 ± 1.86 m | −0.34 ± 1.30 m | −0.39 ± 0.40 m |
+| z500 error, 99th percentile / max | 18.0 / 165 m | 5.9 / 86 m | 3.9 / 57 m | 1.3 / 16 m |
+| z500 error where surfaces differ > 300 m (1,322 columns) | +14.1 ± 18.8 m | +3.4 ± 8.3 m | +2.1 ± 5.0 m | −0.6 ± 1.1 m |
+| T − ERA5 at the top level | +5.6 ± 6.0 K | +5.6 ± 6.0 K | +5.6 ± 6.0 K | 0.0 ± 0.1 K |
+| column water vapour − ERA5, surfaces within 20 m | +0.25 % | +0.18 % | +0.09 % | −0.01 % |
+| lowest-level wind where model surface ≥ 50 m below ERA5's (ERA5: 2.9 m/s) | 3.3 m/s | 3.1 m/s | 4.6 m/s | 2.9 m/s |
+| corr(lowest-level wind, dz), all columns (ERA5: +0.04) | +0.06 | +0.10 | +0.03 | +0.04 |
+
+### ne120 and ne256 (30,000 sampled columns)
+
+HICCUP default is not yet included (in progress). Full output:
+[`results/uniform.ne120np4.md`](results/uniform.ne120np4.md),
+[`results/uniform.ne256np4.md`](results/uniform.ne256np4.md).
+
+| Metric | ne120: HICCUP bilinear | ne120: new, pressure levels | ne120: new | ne256: HICCUP bilinear | ne256: new, pressure levels | ne256: new |
+|---|---|---|---|---|---|---|
+| points with RH > 100 % (of 3.84M) | 6,299 | 0 | 0 | 4,905 | 0 | 0 |
+| z500 error, mean ± std | −0.22 ± 1.80 m | −0.31 ± 1.50 m | −0.39 ± 0.48 m | −0.20 ± 1.87 m | −0.29 ± 1.53 m | −0.40 ± 0.34 m |
+| z500 error, 99th percentile / max | 5.5 / 64 m | 4.5 / 64 m | 1.3 / 13 m | 5.4 / 59 m | 4.1 / 64 m | 1.4 / 7 m |
+| z500 error where surfaces differ > 300 m | +9.8 ± 13.0 m (88) | +6.2 ± 8.4 m | −1.5 ± 1.8 m | +4.7 ± 12.0 m (246) | +4.5 ± 8.2 m | −1.0 ± 1.3 m |
+| T − ERA5 at the top level | +5.7 ± 6.1 K | +5.7 ± 6.1 K | 0.0 ± 0.1 K | +5.6 ± 6.4 K | +5.6 ± 6.4 K | 0.0 ± 0.1 K |
+
+### What the four-way comparison shows
+
+| HICCUP problem | Comes from | Evidence |
+|---|---|---|
+| Supersaturation | method | none with the new tool on either input |
+| `phis` not the model surface | method | 0 with the new tool on either input |
+| Hydrostatic error | both, mostly input | z500 spread: method 1.8–1.9 → 1.3–1.5 m; model-level input → 0.3–0.5 m. The worst columns improve only with model-level input (57–64 m → 7–16 m). |
+| Warm top levels | input | +5.6 K with pressure-level input in either tool: ERA5 pressure levels stop at 1 hPa, and the levels above are extrapolated |
+| Strong near-surface wind where the model surface is below ERA5's | input | worst of all for the new tool on pressure levels (4.6 against ERA5's 2.9 m/s): pressure-level winds below ERA5's ground are extrapolated values; model-level input gives 2.9 m/s |
+
+The new tool on pressure levels is better than HICCUP on the same data, but most of the gain in
+hydrostatic balance, the upper levels and near-surface winds needs model-level input. Pressure-level
+input remains a usable fallback, not an equivalent.
+
+HICCUP's default conservative map is worse than bilinear for the hydrostatic error at ne30
+(spread 5.0 against 1.9 m; 14 m mean error where surfaces differ), as on the CONUS grids.
+
+One unexplained item: the new tool's largest z300 errors at ne30 (up to 45 m, in 0.17 % of
+columns with |error| > 5 m) are over flat tropical ocean, not terrain, probably in deep
+convection where the analysed pressure-level height and the model-level state differ at the
+grid point. They do not appear in z500.
+
+### Timing (one Perlmutter CPU node)
+
+| Grid | HICCUP default (incl. map) | HICCUP bilinear (map + HICCUP) | new tool, model levels | new tool, pressure levels |
+|---|---|---|---|---|
+| ne30 | 3 min 6 s (map 1 min 31 s), 5.4 GB | 11 s + 1 min 12 s, 0.9 GB | 39 s job (13 s columns), 1.3 GB | 38 s job (10 s columns) |
+| ne120 | in progress | 16 s + 3 min 39 s, 4.8 GB | 48 s job (19 s columns) | 45 s job (15 s columns) |
+| ne256 | in progress | 30 s + 11 min 36 s, 14 GB | 85 s job (39 s columns), 37 GB | 80 s job (36 s columns), 25 GB |
+
+The new tool's job time includes start-up, `init` and the sampled `check`.
+
+**HICCUP robustness:** HICCUP's default map step failed three times at ne120 with `*** buffer
+overflow detected ***` inside TempestRemap's `GenerateOverlapMesh`, called by `ncremap`. The
+cause is the length of the absolute paths HICCUP passes: the same command with short relative
+paths succeeds. At ne30 the paths happened to be short enough. The driver now runs HICCUP from
+the work directory with relative paths. The ne30 HICCUP files were made by an earlier copy of
+the driver that differed only in using absolute paths.
+
 ## Tradeoffs: what this tool gives up
 
 - **Maturity and maintenance.** HICCUP is an E3SM-project tool with many users and a history of
@@ -405,6 +508,13 @@ consistent. The decisive test is cheap at x2:
 3. If the wind spin-up looks slow or unphysical, rerun with `--wind-tf-depth 0` for comparison.
    That rerun takes minutes.
 
+In progress on Perlmutter GPUs: 3-day ne30 and ne120 runs of out-of-the-box F2010-SCREAMv1 from
+each of the four uniform-grid ICs (`scripts/uniform/run_ictest_pm.sh`), source
+`conus200/production` (b85cf4de76). Only the IC differs; SST is the compset's climatology (no 2011
+SST file on Perlmutter), identical in all runs. Output: hourly 2D fields, per-step ps and
+precipitation for the initial adjustment, and 6-hourly 3D state, to be scored against ERA5
+analyses every 6 h through 2011-05-22 18Z (`scripts/uniform/request_era5_verif.py`).
+
 ## Reproducing
 
 ```bash
@@ -417,3 +527,15 @@ GRID=1024x2 TOOL_DIR=$PWD sbatch --account=e3sm --export=ALL docs/scripts/run_co
 - `imprint_maps.py`: the imprinting figure
 
 Each script works on any set of IC files on the same grid.
+
+Uniform grids (`scripts/uniform/`; `ne_inputs.sh` holds the per-grid inputs):
+
+```bash
+(NE=120; source docs/scripts/uniform/ne_inputs.sh; python docs/scripts/uniform/make_ne_topo.py $TOPO $COORD_IC $TOPO_LATLON)
+NE=120 NE_MAP=fv2se    TOOL_DIR=$PWD sbatch --account=e3sm --export=ALL docs/scripts/uniform/run_hiccup_ne.sh
+NE=120 NE_MAP=bilinear TOOL_DIR=$PWD sbatch --account=e3sm --export=ALL docs/scripts/uniform/run_hiccup_ne.sh
+# new tool: run_make_ic.sh with SOURCE=era5-ml or era5-pl and TOPO=<grid file from make_ne_topo.py>
+NE=120 TOOL_DIR=$PWD sbatch --account=e3sm --export=ALL docs/scripts/uniform/run_uniform_comparison.sh
+```
+
+`ic_diagnostics.py` uses every column on grids of up to 100,000 columns (ne30).

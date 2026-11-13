@@ -38,6 +38,8 @@ ncol = t.dimensions['ncol_d'].size if 'ncol_d' in t.dimensions else t['lat_d'].s
 rng = np.random.default_rng(0)
 starts = np.sort(rng.choice(ncol - 100, 300, replace=False))
 runs = [slice(s, s + 100) for s in starts]
+if ncol <= 100_000:     # small grid (e.g. ne30np4): use every column
+    runs = [slice(0, ncol)]
 cat = lambda f: np.concatenate([f(r) for r in runs])
 lat = cat(lambda r: t['lat_d'][r].data).astype(float)
 lon = cat(lambda r: t['lon_d'][r].data).astype(float) % 360
@@ -70,7 +72,7 @@ jj, ii, wy, wx = K.horiz_stencil(lat, lon, float(plat[0]), float(plat[1] - plat[
 z500_e = np.empty((n, 1)); K.interp_scalar(np.ascontiguousarray(z5), jj, ii, wy, wx, False, z500_e)
 z500_e = z500_e[:, 0]
 
-print(f'{n} columns sampled ({len(runs)} runs of 100) from {ncol} ')
+print(f'{n} columns sampled ({len(runs)} runs) from {ncol} ')
 print(f'model minus ERA5 surface height in sample: 1/50/99% = {np.percentile(dz_surf, [1, 50, 99]).round(0)} m')
 rows = []
 for label, f in files.items():
