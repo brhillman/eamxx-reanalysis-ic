@@ -23,6 +23,9 @@ This tool instead:
   into one output file.
 - Restarts: finished chunks are skipped on a rerun.
 
+[docs/comparison_with_hiccup.md](docs/comparison_with_hiccup.md) compares the method and its
+results with HICCUP's on the CONUS RRM grids, including the tradeoffs.
+
 ## Sources
 
 | `--source` | Data | Levels | Grid | How to get it |
