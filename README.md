@@ -128,20 +128,18 @@ python make_ic.py check --out IC.nc --ref-pl ERA5.atm.nc     # MERRA-2: the Np f
 
 ## Status
 
-- Tested end to end on the 128x2 grid (1.15M columns) with pressure-level input.
-  Each run took about 23 s on one Perlmutter node and passed `check`:
+- Tested end to end on the 128x2 CONUS RRM grid (1.15M columns, 2011-05-19 18Z).
+  Each run took about 25 s on one Perlmutter CPU node and passed `check`:
 
-  | Source | z500 recomputed minus analysed |
-  |---|---|
-  | `era5-pl` | −0.3 ± 1.3 m |
-  | `merra2-pl` | 0.6 ± 1.7 m |
+  | Source | z500 recomputed minus analysed | max outlier |
+  |---|---|---|
+  | `era5-ml` | −0.4 ± 0.4 m | 16 m |
+  | `era5-pl` | −0.3 ± 1.3 m | 50 m |
+  | `merra2-pl` | 0.6 ± 1.7 m | 87 m |
 
-- Model-level readers (`era5-ml`, `ifs-ml`, `merra2-ml`) are written and unit-tested
-  but not yet run on real data:
-  - `era5-ml`: the CDS request is pending.
-  - `ifs-ml`: needs MARS access.
-  - `merra2-ml`: needs an Earthdata login.
-- The `pv` extraction in `grib_to_nc.sh` is tested on an ecCodes sample file.
+- `ifs-ml` and `merra2-ml` readers are written and unit-tested but not yet run on
+  real data (they need MARS access and an Earthdata login, respectively).
+- The `pv` extraction in `grib_to_nc.sh` is tested on real ERA5 model-level GRIB.
 
 ## Tests
 
