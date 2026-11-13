@@ -2,7 +2,8 @@
 # ==============================================================================
 # EAMxx test runs on a uniform grid with three initial conditions for
 # 2011-05-19 18Z (L128v4): HICCUP default (fv2se_flx map), HICCUP bilinear,
-# and the new tool. Everything else is the out-of-the-box F2010-SCREAMv1
+# and the new tool (model and pressure levels; *-vfix: with the deep-valley
+# wind blending fix, tag 20261113b). Everything else is the out-of-the-box F2010-SCREAMv1
 # configuration for the grid (default topography, which the ICs were made
 # for; climatological SST, identical in all runs), so differences come from
 # the IC alone.
@@ -28,12 +29,14 @@ compset=F2010-SCREAMv1
 atmchange=${e3sm}/components/eamxx/scripts/atmchange
 
 declare -A ic=(
+    [newtool-vfix]=${icdir}/eamxx_ic.era5-ml.2011-05-19.18.${g}.L128_for_E3SMv4_c20260820.bicubic.20261113b.nc
+    [newtool-pl-vfix]=${icdir}/eamxx_ic.era5-pl.2011-05-19.18.${g}.L128_for_E3SMv4_c20260820.bicubic.20261113b.nc
     [newtool-pl]=${icdir}/eamxx_ic.era5-pl.2011-05-19.18.${g}.L128_for_E3SMv4_c20260820.bicubic.20261113.nc
     [newtool]=${icdir}/eamxx_ic.era5-ml.2011-05-19.18.${g}.L128_for_E3SMv4_c20260820.bicubic.20261113.nc
     [hiccup-fv2se]=${icdir}/HICCUP.atm_era5.2011-05-19.18.${g}.L128v4.fv2se.20261113.nc
     [hiccup-bilin]=${icdir}/HICCUP.atm_era5.2011-05-19.18.${g}.L128v4.bilinear.20261113.nc
 )
-order=(${ONLY:-newtool hiccup-fv2se hiccup-bilin newtool-pl})
+order=(${ONLY:-newtool hiccup-fv2se hiccup-bilin newtool-pl newtool-vfix newtool-pl-vfix})
 case ${NE} in
     30)  wall=01:00:00 ;;
     120) wall=06:00:00 ;;
