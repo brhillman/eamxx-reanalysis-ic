@@ -72,23 +72,42 @@ The output holds `T_mid`, `U`, `V`, `qv`, `qc`, `qi`, `o3_volume_mix_ratio`,
 It is CDF5, with columns in the topography file's `ncol_d` order. Each output
 file records its inputs, method and tool revision in its global attributes.
 
+## Requirements
+
+- Python with numpy, numba and netCDF4. On Perlmutter, E3SM-Unified has all three:
+  `source /global/common/software/e3sm/anaconda_envs/load_latest_e3sm_unified_pm-cpu.sh`
+- ecCodes command-line tools, only for converting GRIB (`grib_to_nc.sh`).
+- For downloads only: `cdsapi` (ERA5), `ecmwf-api-client` (IFS) or `wget` with a NASA Earthdata login (MERRA-2).
+
+Inputs you supply:
+- an EAMxx **topography file** with `lat_d`, `lon_d` and `PHIS_d` on the target np4 grid. It defines the target grid.
+- a **vertical grid file** with `hyam`, `hybm`, `hyai`, `hybi` (and optionally `P0`), for example HICCUP's
+  `files_vert/L128_for_E3SMv4_c20260820.nc` or `files_vert/L80_for_E3SMv3.nc`.
+- the analysis date and hour.
+
 ## Usage
 
 ```bash
-# ERA5 model levels: request from CDS, download, convert
-python request_era5_ml.py submit          # later: status / download
-./grib_to_nc.sh <dir>/ERA5.ml.2011-05-19.18
-GRID=1024x2 SOURCE=era5-ml sbatch run_make_ic.sh
+# ERA5 model levels: request from CDS, download (once the request completes), convert
+python request_era5_ml.py submit   --dir $SRC --date 2011-05-19 --hour 18
+python request_era5_ml.py download --dir $SRC
+./grib_to_nc.sh $SRC/ERA5.ml.2011-05-19.18
 
-# IFS operational analysis (MARS access required)
-python request_ifs_ml.py --date 2011-05-19 --hour 18 --dir <dir>
-./grib_to_nc.sh <dir>/IFS.ml.2011-05-19.18
-GRID=1024x2 SOURCE=ifs-ml sbatch run_make_ic.sh
+# or the IFS operational analysis (MARS access required)
+python request_ifs_ml.py --date 2011-05-19 --hour 18 --dir $SRC
+./grib_to_nc.sh $SRC/IFS.ml.2011-05-19.18
 
-# MERRA-2 model levels
-./download_merra2_nv.sh 2011-05-19 <dir>
-GRID=1024x2 SOURCE=merra2-ml sbatch run_make_ic.sh
+# or MERRA-2 model levels
+./download_merra2_nv.sh 2011-05-19 $SRC
+
+# then, as a batch job
+SOURCE=era5-ml DATE=2011-05-19 HOUR=18 SRC_DIR=$SRC TOPO=topo.nc VERT=L128.nc WORK=$OUTDIR \
+    sbatch --account=XXX run_make_ic.sh
 ```
+
+`run_make_ic.sh` documents its settings in its header. Its `#SBATCH` lines are for
+Perlmutter CPU nodes; change them on the `sbatch` command line elsewhere.
+`examples/conus2026_2011-05-19.sh` shows a complete setup (the CONUS 2026 INCITE RRM grids).
 
 Or step by step:
 
@@ -123,14 +142,12 @@ python make_ic.py check --out IC.nc --ref-pl ERA5.atm.nc     # MERRA-2: the Np f
   - `ifs-ml`: needs MARS access.
   - `merra2-ml`: needs an Earthdata login.
 - The `pv` extraction in `grib_to_nc.sh` is tested on an ecCodes sample file.
-- Defaults in `run_make_ic.sh` and `request_era5_ml.py` (work directories,
-  account, topography paths) are for the CONUS 2026 INCITE runs on Perlmutter.
-  Override them through the environment.
 
 ## Tests
 
 ```bash
-python tests/test_kernels.py
+python tests/test_kernels.py                       # or: python -m pytest -q tests
+VERT_FILE=L128.nc python tests/test_kernels.py     # use a real vertical grid instead of the synthetic one
 ```
 
 The tests compare against analytic answers:

@@ -7,7 +7,7 @@
 # (https://api.ecmwf.int/v1/key/). CDS does not serve operational analyses.
 #
 # Usage:
-#   python request_ifs_ml.py --date 2011-05-19 --hour 18 --dir /pscratch/.../ifs_ml
+#   python request_ifs_ml.py --date 2011-05-19 --hour 18 --dir $SCRATCH/ifs_ml
 # writes IFS.ml.<date>.<hour>.3d.grib and .sfc.grib; then run
 #   grib_to_nc.sh <dir>/IFS.ml.<date>.<hour>
 # The call blocks until MARS delivers (queued tape retrievals can take hours),

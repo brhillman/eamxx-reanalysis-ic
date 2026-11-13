@@ -8,7 +8,7 @@
 #      pv holds all a values followed by all b values)
 #
 # Usage: grib_to_nc.sh PREFIX
-#   e.g. grib_to_nc.sh /pscratch/.../era5_ml/ERA5.ml.2011-05-19.18
+#   e.g. grib_to_nc.sh $SCRATCH/era5_ml/ERA5.ml.2011-05-19.18
 # Needs ecCodes command-line tools (E3SM-Unified provides them).
 set -e
 prefix=$1

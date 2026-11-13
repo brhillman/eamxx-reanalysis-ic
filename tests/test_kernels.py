@@ -11,8 +11,21 @@ import kernels as K
 import sources
 from cdf5 import ColumnWriter
 
-VERT_FILE = os.environ.get('VERT_FILE',
-    '/global/homes/b/bhillma/codes/HICCUP-latest/files_vert/L128_for_E3SMv4_c20260820.nc')
+# Target levels: an EAMxx vertical grid file if VERT_FILE is set, otherwise a
+# synthetic 80-level hybrid grid (pure pressure above 100 hPa, top 10 Pa,
+# lowest layer ~1.3% of ps thick, i.e. ~100 m, like EAMxx grids).
+VERT_FILE = os.environ.get('VERT_FILE')
+
+
+def target_levels():
+    if VERT_FILE:
+        v = nc.Dataset(VERT_FILE)
+        return tuple(np.asarray(v[k][:], np.float64) for k in ['hyam', 'hybm', 'hyai', 'hybi'])
+    x = np.linspace(0.0, 1.0, 81)
+    eta = np.exp(np.log(1e-4) * (1.0 - x) ** 1.5)               # interface p/P0, top -> surface
+    hybi = np.clip((eta - 0.1) / 0.9, 0.0, 1.0) ** 1.2          # b = 0 above eta = 0.1
+    hyai = eta - hybi
+    return 0.5 * (hyai[:-1] + hyai[1:]), 0.5 * (hybi[:-1] + hybi[1:]), hyai, hybi
 LAT = 90.0 - 0.25 * np.arange(721)
 LON = 0.25 * np.arange(1440)
 D2R = np.pi / 180
@@ -92,8 +105,7 @@ def _column(T, ps, zs, phis, q=0.0, nsrc=60):
     ah = np.concatenate([np.linspace(0, 2e4, nsrc // 2 + 1)[:-1], np.linspace(2e4, 0, nsrc - nsrc // 2 + 1)])
     bh = np.concatenate([np.zeros(nsrc // 2), np.linspace(0, 1, nsrc - nsrc // 2 + 1)])
     af, bf = 0.5 * (ah[:-1] + ah[1:]), 0.5 * (bh[:-1] + bh[1:])
-    v = nc.Dataset(VERT_FILE)
-    hyam, hybm, hyai, hybi = (np.asarray(v[k][:], np.float64) for k in ['hyam', 'hybm', 'hyai', 'hybi'])
+    hyam, hybm, hyai, hybi = target_levels()
     n, nt = 1, hyam.size
     Ts = np.full((n, nsrc), T); qs = np.full((n, nsrc), q)
     us = np.full((n, nsrc), 5.0); vs = np.full((n, nsrc), -3.0)
@@ -129,8 +141,8 @@ def test_ps_adjust_downward_lapse_rate():
 
 def test_supersaturation_removed():
     psm, To, qo, uo, tro, diag = _column(290.0, 1e5, 0.0, 0.0, q=0.05)
-    v = nc.Dataset(VERT_FILE)
-    pm = np.asarray(v['hyam'][:]) * 1e5 + np.asarray(v['hybm'][:]) * psm
+    hyam, hybm = target_levels()[:2]
+    pm = hyam * 1e5 + hybm * psm
     qs = np.array([K.qsat_liq(t, p) for t, p in zip(To, pm)])
     assert np.all(qo <= qs * (1 + 1e-12)) and diag[1] > 0
     assert np.isclose(qo[-1], qs[-1])                             # clipped to saturation
