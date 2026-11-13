@@ -1,8 +1,8 @@
-# EAMxx initial conditions from ERA5
+# EAMxx initial conditions from reanalyses
 
 `make_ic.py` makes an EAMxx initial condition (IC) on an np4 (GLL) grid,
-including regionally refined grids, directly from ERA5. It does this in one
-pass, in parallel over columns. It replaces HICCUP for this purpose and does
+including regionally refined grids, directly from ERA5, the ECMWF operational
+IFS analysis or MERRA-2. It does this in one pass, in parallel over columns. It replaces HICCUP for this purpose and does
 not try to reproduce HICCUP's output.
 
 ## Why
@@ -15,33 +15,57 @@ HICCUP, as used for the CONUS x2/x3/x4 ICs, works like this:
   files and about 300 GB of memory, with no way to restart.
 
 This tool instead:
-- Reads ERA5 on its native **137 model levels** (pressure levels are supported
-  as a fallback).
+- Reads the source on its native **model levels** (pressure levels are
+  supported as a fallback).
 - Interpolates horizontally **along model levels** with weights computed
   directly from the regular lat-lon grid, so no map file is needed.
 - Does all the column physics in memory and writes each column range straight
   into one output file.
 - Restarts: finished chunks are skipped on a rerun.
 
+## Sources
+
+| `--source` | Data | Levels | Grid | How to get it |
+|---|---|---|---|---|
+| `era5-ml` | ERA5 analysis | 137 hybrid | 0.25° | `request_era5_ml.py` (CDS, `~/.cdsapirc`), then `grib_to_nc.sh` |
+| `ifs-ml` | ECMWF operational IFS analysis | 91 (before 2013-06-25) or 137 | 0.125° (T1279) or 0.1° (TCo1279, from 2016-03-08) | `request_ifs_ml.py` (MARS, `~/.ecmwfapirc`, needs MARS access), then `grib_to_nc.sh` |
+| `merra2-ml` | MERRA-2 `inst3_3d_asm_Nv` | 72 hybrid | 0.5°×0.625° | `download_merra2_nv.sh` (NASA Earthdata login in `~/.netrc`) |
+| `era5-pl` | ERA5 on pressure levels | 37 | 0.25° | CDS |
+| `merra2-pl` | MERRA-2 `inst3_3d_asm_Np` | 42 | 0.5°×0.625° | on Perlmutter: `/global/cfs/projectdirs/m3522/cmip6/MERRA2` |
+
+Use model levels when you can. With pressure-level input, levels that are underground
+at neighbouring source points leak into the horizontal interpolation near steep terrain:
+- ERA5 fills those levels with values ECMWF extrapolated.
+- MERRA-2 marks them missing, and the tool fills them (T by the standard lapse rate, other fields constant).
+
+Either way the source column is already 25–90 m off its own analysed 500 hPa height
+over the Himalayas, Andes and Antarctica, before any adjustment.
+
+How each source is read:
+- **Hybrid coefficients:** for ERA5 and IFS they come from the GRIB `pv` array. For MERRA-2
+  they are fitted from `DELP`, `PS` and `PL`, and the fit is checked to be exact.
+- **Snow** (ERA5/IFS `cswc`) is added to cloud ice. MERRA-2 has no snow field.
+- **Grid:** any regular global lat-lon grid works, in either latitude order and from any longitude origin.
+
 ## Method
 
-1. **Horizontal**, from the ERA5 0.25° grid to each GLL node:
+1. **Horizontal**, from the source grid to each GLL node:
    - **Default**: bicubic (Keys/Catmull-Rom, smooth first derivatives) for T, ln ps and surface geopotential. Bilinear is an option.
    - **q, condensate and ozone**: the same interpolation, limited to the range of the surrounding 2×2 source points. This creates no new extremes and no negative values.
    - **Winds**: interpolated as 3D Cartesian vectors, then projected onto the local east and north directions. This is correct near and across the poles.
-2. **ERA5 column**: full-level pressures `a + b·ps` and half levels from the L137 coefficients. Geopotential is integrated upward from ERA5's surface geopotential using virtual temperature. EAMxx's constants are used throughout.
+2. **Source column**: full-level pressures `a + b·ps` and half levels from the source's hybrid coefficients, or the pressure levels above the source surface. Geopotential is integrated upward from the source's surface geopotential using virtual temperature. EAMxx's constants are used throughout.
 3. **Surface pressure on the model topography** (`PHIS_d` in the topography file, which EAMxx reads at run time):
-   - Where the model surface is above ERA5's, ln p is interpolated in geopotential within the ERA5 column. No lapse rate is assumed.
-   - Where it is below, values are extrapolated with 6.5 K/km from the ERA5 surface virtual temperature, capped at 290.5 K as in Trenberth et al. (1993). The same profile gives T below the ERA5 surface, so ps and T are hydrostatically consistent.
+   - Where the model surface is above the source surface, ln p is interpolated in geopotential within the source column. No lapse rate is assumed.
+   - Where it is below, values are extrapolated with 6.5 K/km from the source surface virtual temperature, capped at 290.5 K as in Trenberth et al. (1993). The same profile gives T below the source surface, so ps and T are hydrostatically consistent.
 4. **Vertical remap** to the target hybrid levels `hyam·P0 + hybm·ps`:
    - T, U and V are interpolated linearly in ln p.
-   - Below the ERA5 surface, T follows the same lapse rate as the ps extrapolation, and U and V are held constant.
-   - qv, qc, qi and ozone are remapped with a mass-conserving piecewise-linear method whose slopes are limited. This conserves column mass between the ERA5 surface and the model top, and creates no new extremes.
+   - Below the source surface, T follows the same lapse rate as the ps extrapolation, and U and V are held constant.
+   - qv, qc, qi and ozone are remapped with a mass-conserving piecewise-linear method whose slopes are limited. This conserves column mass between the source surface and the model top, and creates no new extremes.
 5. **State adjustment**:
    - Supersaturation with respect to liquid is removed, using EAMxx's Murphy–Koop formula. Supersaturation over ice is allowed up to liquid saturation, as in P3.
    - qv has a floor of 1e-12.
    - Ozone is converted from mass to volume mixing ratio.
-   - ERA5 snow (`cswc`) is added to cloud ice by default, because P3's single ice category includes snow. ERA5 rain is not written, because EAMxx forces `qr` to 0 at start-up.
+   - Snow (ERA5/IFS `cswc`) is added to cloud ice by default, because P3's single ice category includes snow. Rain is not written, because EAMxx forces `qr` to 0 at start-up.
 
 The output holds `T_mid`, `U`, `V`, `qv`, `qc`, `qi`, `o3_volume_mix_ratio`,
 `ps` and `phis` (= `PHIS_d`), plus the hybrid coefficients, lat/lon and date.
@@ -51,21 +75,28 @@ file records its inputs, method and tool revision in its global attributes.
 ## Usage
 
 ```bash
-# 1. ERA5 model levels from CDS (needs ~/.cdsapirc and cdsapi)
-python request_era5_ml.py submit      # later: status / download
-# 2. convert GRIB to netCDF and extract the L137 a/b coefficients
-#    (grib_to_nc.sh: to be added once the first CDS files arrive)
-# 3. make the IC (init + parallel run + check) on Perlmutter
-GRID=1024x2 sbatch run_make_ic.sh
+# ERA5 model levels: request from CDS, download, convert
+python request_era5_ml.py submit          # later: status / download
+./grib_to_nc.sh <dir>/ERA5.ml.2011-05-19.18
+GRID=1024x2 SOURCE=era5-ml sbatch run_make_ic.sh
+
+# IFS operational analysis (MARS access required)
+python request_ifs_ml.py --date 2011-05-19 --hour 18 --dir <dir>
+./grib_to_nc.sh <dir>/IFS.ml.2011-05-19.18
+GRID=1024x2 SOURCE=ifs-ml sbatch run_make_ic.sh
+
+# MERRA-2 model levels
+./download_merra2_nv.sh 2011-05-19 <dir>
+GRID=1024x2 SOURCE=merra2-ml sbatch run_make_ic.sh
 ```
 
 Or step by step:
 
 ```bash
-python make_ic.py init  --out IC.nc --source ml --era5-atm ... --era5-sfc ... --era5-ab ... \
+python make_ic.py init  --out IC.nc --source era5-ml --atm 3d.nc --sfc sfc.nc --ab ab.txt \
                         --topo TOPO.nc --vert VERT.nc --date 2011-05-19 --hour 18
 srun -N 8 --ntasks-per-node=1 -c 256 python make_ic.py run --out IC.nc
-python make_ic.py check --out IC.nc --era5-pl-atm ERA5.atm.nc
+python make_ic.py check --out IC.nc --ref-pl ERA5.atm.nc     # MERRA-2: the Np file
 ```
 
 `check` verifies the following on sampled columns:
@@ -74,14 +105,24 @@ python make_ic.py check --out IC.nc --era5-pl-atm ERA5.atm.nc
 - moisture and ozone are non-negative
 - there is no supersaturation
 - `phis` matches the topography file
-- hydrostatic consistency: 500 hPa height recomputed from ps, T, qv and `PHIS_d` against ERA5's analysed z500
+- hydrostatic consistency: 500 hPa height recomputed from ps, T, qv and `PHIS_d` against the source's analysed 500 hPa height (ERA5 `z`, MERRA-2 `H`), in columns with ps > 700 hPa
 
 ## Status
 
-- Tested end to end with ERA5 pressure-level input on the 128x2 grid. The
-  1.15M-column IC took 21 s on one Perlmutter node and passed `check`.
-- Model-level input is written but not yet run: the CDS request is pending, and
-  the GRIB conversion script will be added when the files arrive.
+- Tested end to end on the 128x2 grid (1.15M columns) with pressure-level input.
+  Each run took about 23 s on one Perlmutter node and passed `check`:
+
+  | Source | z500 recomputed minus analysed |
+  |---|---|
+  | `era5-pl` | −0.3 ± 1.3 m |
+  | `merra2-pl` | 0.6 ± 1.7 m |
+
+- Model-level readers (`era5-ml`, `ifs-ml`, `merra2-ml`) are written and unit-tested
+  but not yet run on real data:
+  - `era5-ml`: the CDS request is pending.
+  - `ifs-ml`: needs MARS access.
+  - `merra2-ml`: needs an Earthdata login.
+- The `pv` extraction in `grib_to_nc.sh` is tested on an ecCodes sample file.
 - Defaults in `run_make_ic.sh` and `request_era5_ml.py` (work directories,
   account, topography paths) are for the CONUS 2026 INCITE runs on Perlmutter.
   Override them through the environment.
@@ -100,3 +141,6 @@ The tests compare against analytic answers:
 - surface-pressure adjustment matches the isothermal case
 - supersaturation is removed
 - the parallel CDF5 writer round-trips data correctly
+- a south-to-north source grid starting at -180° (MERRA-2's layout) interpolates exactly
+- hybrid coefficients are recovered from level pressures, and non-hybrid levels are rejected
+- missing values below ground are filled correctly

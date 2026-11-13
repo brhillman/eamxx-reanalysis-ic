@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # ==============================================================================
-# EAMxx initial condition from ERA5 on an np4 (GLL) grid, in one pass.
+# EAMxx initial condition from a reanalysis (ERA5, IFS, MERRA-2) on an np4
+# (GLL) grid, in one pass.
 #
 #   make_ic.py init  --out IC.nc [options]   create the output file, freeze config
 #   make_ic.py run   --out IC.nc [--task i --ntasks n]
@@ -52,7 +53,8 @@ def cmd_init(a):
     out = a.out
     if os.path.exists(out) and not a.force:
         sys.exit(f'{out} exists (use --force to overwrite)')
-    for f in [a.topo, a.vert, a.era5_atm, a.era5_sfc] + ([a.era5_ab] if a.source == 'ml' else []):
+    inputs = [a.atm] + ([a.sfc] if a.sfc else []) + ([a.ab] if a.ab else [])
+    for f in inputs + [a.topo, a.vert]:
         if not os.path.isfile(f):
             sys.exit(f'missing input: {f}')
     t = nc.Dataset(a.topo)
@@ -84,7 +86,7 @@ def cmd_init(a):
         'V': ('m/s', 'meridional wind'),
         'qv': ('kg/kg', 'water vapor wet mixing ratio (specific humidity)'),
         'qc': ('kg/kg', 'cloud liquid wet mixing ratio'),
-        'qi': ('kg/kg', 'cloud ice wet mixing ratio' + (' (ERA5 ice + snow)' if a.snow_to_ice else '')),
+        'qi': ('kg/kg', 'cloud ice wet mixing ratio' + (' (ice + snow where available)' if a.snow_to_ice else '')),
         'o3_volume_mix_ratio': ('mol/mol', 'ozone volume mixing ratio'),
     }
     for name in THREE_D:
@@ -105,16 +107,16 @@ def cmd_init(a):
     var('date', 'i4', ('time',), '1', 'current date (YYYYMMDD)')
     var('datesec', 'i4', ('time',), 's', 'current seconds of current date')
 
-    o.title = 'EAMxx initial condition from ERA5'
-    o.source = (f'ERA5 {"model levels (L137)" if a.source == "ml" else "pressure levels"} '
+    o.title = 'EAMxx initial condition from reanalysis'
+    o.source = (f'{a.source} '
                 f'{init_time:%Y-%m-%d %HZ}')
-    o.method = (f'horizontal {a.horiz} along ERA5 levels (moisture/condensate/ozone limited '
+    o.method = (f'horizontal {a.horiz} along source levels (moisture/condensate/ozone limited '
                 'to local 2x2 range; winds as 3D vectors); ps adjusted to PHIS_d by '
-                'hypsometric interpolation within the ERA5 column (lapse-rate '
-                'extrapolation below the ERA5 surface); T,U,V linear in ln p; q and '
+                'hypsometric interpolation within the source column (lapse-rate '
+                'extrapolation below the source surface); T,U,V linear in ln p; q and '
                 'tracers mass-conserving PLM remap; supersaturation (liquid, '
                 'Murphy-Koop) removed')
-    o.input_files = ', '.join([a.era5_atm, a.era5_sfc] + ([a.era5_ab] if a.source == 'ml' else [])
+    o.input_files = ', '.join(inputs
                               + [a.topo, a.vert])
     o.tool = f'eamxx-era5-ic make_ic.py rev {cfg["tool_rev"]}'
     o.history = f'{cfg["created"]}: created'
@@ -144,13 +146,10 @@ def cmd_init(a):
 # ------------------------------------------------------------------------------
 def load_source(cfg):
     fields = ['t', 'q', 'u', 'v', 'clwc', 'ciwc', 'o3'] + (['cswc'] if cfg['snow_to_ice'] else [])
-    if cfg['source'] == 'ml':
-        src = sources.read_era5_ml(cfg['era5_atm'], cfg['era5_sfc'], cfg['era5_ab'], fields)
-    else:
-        src = sources.read_era5_pl(cfg['era5_atm'], cfg['era5_sfc'], fields)
+    src = sources.read_source(cfg['source'], cfg['atm'], cfg['sfc'], cfg['ab'], fields, cfg['hour'])
     missing = [f for f in ['t', 'q', 'u', 'v', 'clwc', 'ciwc', 'o3'] if f not in src.f3d]
     if missing:
-        raise ValueError(f'missing ERA5 fields: {missing}')
+        raise ValueError(f'missing source fields: {missing}')
     if cfg['snow_to_ice']:
         if 'cswc' in src.f3d:
             src.f3d['ciwc'] = src.f3d['ciwc'] + src.f3d.pop('cswc')
@@ -253,7 +252,7 @@ def cmd_run(a):
 def cmd_check(a):
     """Validate sampled columns: completeness, finite values, ranges,
     positivity, saturation, and hydrostatic consistency (z500 recomputed from
-    ps, T, qv and PHIS_d against ERA5's analysed z500)."""
+    ps, T, qv and PHIS_d against the analysed z500 of the source)."""
     cfg = load_config(a.out)
     ncol = cfg['ncol']
     sd = status_dir(a.out)
@@ -294,27 +293,35 @@ def cmd_check(a):
     phis_t = np.asarray(t['PHIS_d'][idx], np.float64)
     lat_t = np.asarray(t['lat_d'][idx], np.float64)
     print(f'  max |phis - PHIS_d| {np.abs(d["phis"] - phis_t).max():.3g}, max |lat - lat_d| {np.abs(d["lat"] - lat_t).max():.3g}')
-    # hydrostatic check against ERA5 z500 (pressure-level file)
-    if a.era5_pl_atm:
+    # hydrostatic check against the source's own analysed 500 hPa height
+    # (pressure-level file: ERA5 'z' geopotential or MERRA-2 'H' height)
+    if a.ref_pl:
         Tv = d['T_mid'] * (1 + K.ZVIR * d['qv'])
         phi_i = np.empty(pi.shape)
         phi_i[:, -1] = d['phis']
         for k in range(pm.shape[1] - 1, -1, -1):
             phi_i[:, k] = phi_i[:, k + 1] + K.RD * Tv[:, k] * np.log(pi[:, k + 1] / pi[:, k])
         z500 = np.array([np.interp(np.log(5e4), np.log(pi[c]), phi_i[c]) for c in range(idx.size)]) / K.G
-        e = nc.Dataset(a.era5_pl_atm)
-        k500 = int(np.where(np.isclose(e['pressure_level'][:], 500))[0][0])
-        zf = np.asarray(e['z'][0, k500], np.float64) / K.G
-        elat, elon = e['latitude'][:].data, e['longitude'][:].data
+        e = nc.Dataset(a.ref_pl)
+        levname = 'pressure_level' if 'pressure_level' in e.variables else 'lev'
+        latname = 'latitude' if 'latitude' in e.variables else 'lat'
+        lonname = 'longitude' if 'longitude' in e.variables else 'lon'
+        k500 = int(np.where(np.isclose(e[levname][:], 500))[0][0])
+        it = sources._time_index(e, cfg['hour'])
+        zname = 'z' if 'z' in e.variables else 'H'
+        zf = np.ma.filled(np.ma.asarray(e[zname][it, k500]).astype(np.float64), np.nan)
+        if zname == 'z':
+            zf /= K.G                                     # geopotential -> height
+        elat, elon = e[latname][:].data, e[lonname][:].data
         jj, ii, wy, wx = K.horiz_stencil(d['lat'], d['lon'], float(elat[0]), float(elat[1] - elat[0]),
                                          elat.size, float(elon[0]), float(elon[1] - elon[0]), elon.size, False)
         ze = np.empty((idx.size, 1))
         K.interp_scalar(np.ascontiguousarray(zf[:, :, None].astype(np.float32)), jj, ii, wy, wx, False, ze)
         dz = z500 - ze[:, 0]
-        # only where 500 hPa is well above the surface in both ERA5 and the
-        # IC (closer to the ground ERA5's z500 is itself extrapolated)
-        valid = pi[:, -1] > 7.0e4
-        print(f'  z500 (recomputed - ERA5): mean {dz[valid].mean():.2f} m, std {dz[valid].std():.2f} m, '
+        # only where 500 hPa is well above the surface (closer to the ground
+        # the analysed z500 is itself extrapolated)
+        valid = (pi[:, -1] > 7.0e4) & np.isfinite(dz)
+        print(f'  z500 (recomputed - analysed): mean {dz[valid].mean():.2f} m, std {dz[valid].std():.2f} m, '
               f'max |.| {np.abs(dz[valid]).max():.1f} m ({valid.sum()} columns with ps > 700 hPa)')
         ok &= abs(dz[valid].mean()) < 5 and dz[valid].std() < 10
     print('CHECK PASSED' if ok else 'CHECK FAILED')
@@ -327,18 +334,18 @@ def main():
     sp = p.add_subparsers(dest='cmd', required=True)
     i = sp.add_parser('init')
     i.add_argument('--out', required=True)
-    i.add_argument('--source', choices=['ml', 'pl'], required=True,
-                   help='ERA5 model levels (preferred) or pressure levels')
-    i.add_argument('--era5-atm', required=True, help='3D fields (netCDF)')
-    i.add_argument('--era5-sfc', required=True, help='ml: lnsp and z on level 1; pl: sp and z')
-    i.add_argument('--era5-ab', help='ml only: L137 half-level a b (text)')
+    i.add_argument('--source', choices=sources.SOURCES, required=True,
+                   help='source and level type (model levels preferred)')
+    i.add_argument('--atm', required=True, help='3D fields (netCDF); MERRA-2: the whole file')
+    i.add_argument('--sfc', help='era5/ifs-ml: lnsp and z on level 1; era5-pl: sp and z')
+    i.add_argument('--ab', help='era5/ifs-ml: half-level a [Pa] b (text, from GRIB pv)')
     i.add_argument('--topo', required=True, help='topography file with lat_d, lon_d, PHIS_d')
     i.add_argument('--vert', required=True, help='vertical grid file (hyam, hybm, hyai, hybi, P0)')
     i.add_argument('--date', required=True, help='YYYY-MM-DD')
     i.add_argument('--hour', required=True, type=int)
     i.add_argument('--horiz', choices=['bicubic', 'bilinear'], default='bicubic')
     i.add_argument('--no-snow-to-ice', dest='snow_to_ice', action='store_false',
-                   help='do not add ERA5 snow (cswc) to cloud ice')
+                   help='do not add snow (ERA5/IFS cswc) to cloud ice')
     i.add_argument('--chunk', type=int, default=1_000_000, help='columns per work unit')
     i.add_argument('--force', action='store_true')
     i.set_defaults(func=cmd_init)
@@ -350,11 +357,14 @@ def main():
     c = sp.add_parser('check')
     c.add_argument('--out', required=True)
     c.add_argument('--nsample', type=int, default=20000)
-    c.add_argument('--era5-pl-atm', help='ERA5 pressure-level file for the z500 check')
+    c.add_argument('--ref-pl', help='pressure-level file of the same analysis with z (ERA5) or H\n'
+                   '(MERRA-2) at 500 hPa, for the hydrostatic check')
     c.set_defaults(func=cmd_check)
     a = p.parse_args()
-    if a.cmd == 'init' and a.source == 'ml' and not a.era5_ab:
-        p.error('--era5-ab is required with --source ml')
+    if a.cmd == 'init' and a.source in ('era5-ml', 'ifs-ml') and not (a.ab and a.sfc):
+        p.error(f'--sfc and --ab are required with --source {a.source}')
+    if a.cmd == 'init' and a.source == 'era5-pl' and not a.sfc:
+        p.error('--sfc is required with --source era5-pl')
     a.func(a)
 
 

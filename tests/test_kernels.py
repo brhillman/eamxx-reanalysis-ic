@@ -8,6 +8,7 @@ import netCDF4 as nc
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 import kernels as K
+import sources
 from cdf5 import ColumnWriter
 
 VERT_FILE = os.environ.get('VERT_FILE',
@@ -160,6 +161,52 @@ def test_cdf5_column_writer_roundtrip():
         r = nc.Dataset(f)
         assert np.allclose(r['A'][0], a.astype(np.float32)) and np.allclose(r['B'][0], b)
         assert np.array_equal(r['lat'][:], np.arange(1000))
+
+
+def test_horizontal_south_to_north_grid_from_minus180():
+    """MERRA-2 layout: 361 latitudes from -90, 576 longitudes from -180."""
+    lat_s = -90.0 + 0.5 * np.arange(361)
+    lon_s = -180.0 + 0.625 * np.arange(576)
+    sources.check_grid(lat_s, lon_s)
+    la, lo = np.meshgrid(lat_s, lon_s, indexing='ij')
+    f = np.ascontiguousarray((2.0 + 0.3 * la + 0.01 * lo)[:, :, None])
+    rng = np.random.default_rng(6)
+    lat = rng.uniform(-80, 80, 3000)
+    lon = rng.uniform(-170, 170, 3000) % 360             # destination in 0..360
+    for cubic in (False, True):
+        jj, ii, wy, wx = K.horiz_stencil(lat, lon, -90.0, 0.5, 361, -180.0, 0.625, 576, cubic)
+        out = np.empty((lat.size, 1))
+        K.interp_scalar(f, jj, ii, wy, wx, False, out)
+        lon180 = np.where(lon > 180, lon - 360, lon)
+        assert np.abs(out[:, 0] - (2.0 + 0.3 * lat + 0.01 * lon180)).max() < 1e-9
+
+
+def test_fit_hybrid_recovers_coefficients():
+    rng = np.random.default_rng(7)
+    a = np.concatenate([np.linspace(1, 2e4, 30), np.linspace(2e4, 0, 43)])
+    b = np.concatenate([np.zeros(30), np.linspace(0, 1, 43)])
+    ps = rng.uniform(5e4, 1.05e5, 5000)
+    pk = (a[:, None] + b[:, None] * ps[None, :]).astype(np.float32).astype(np.float64)
+    af, bf = sources._fit_hybrid(pk, ps)
+    assert np.abs(af - a).max() < 0.05 and np.abs(bf - b).max() < 1e-6
+    bad = pk + rng.normal(0, 50, pk.shape)               # not hybrid: must be rejected
+    try:
+        sources._fit_hybrid(bad, ps)
+        assert False, 'non-hybrid levels accepted'
+    except ValueError:
+        pass
+
+
+def test_fill_below_ground():
+    p = np.array([5e4, 7e4, 8.5e4, 1e5])
+    t = np.full((4, 2, 2), np.nan); q = np.full((4, 2, 2), np.nan)
+    t[:2] = 250.0; q[:2] = 1e-3
+    t[2, 0, 0] = 260.0; q[2, 0, 0] = 2e-3                 # one column valid one level deeper
+    tf = sources._fill_below_ground(t, p, 't')
+    qf = sources._fill_below_ground(q, p, 'q')
+    assert np.isfinite(tf).all() and np.isfinite(qf).all()
+    assert np.isclose(tf[3, 0, 0], 260.0 * (1e5 / 8.5e4) ** (sources.RD * sources.GAMMA_STD / sources.G))
+    assert tf[2, 1, 1] > 250.0 and qf[3, 1, 1] == 1e-3 and qf[3, 0, 0] == 2e-3
 
 
 if __name__ == '__main__':
