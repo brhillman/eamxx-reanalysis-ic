@@ -64,7 +64,8 @@ How each source is read:
    - T is interpolated linearly in ln p. Below the source surface it follows the same lapse rate as the ps extrapolation.
    - U and V are interpolated linearly in ln p at a lookup pressure that is terrain-following at the ground
      (the same p/ps as the target level) and blends to plain pressure matching over the lowest 150 hPa
-     (`--wind-tf-depth`, 0 = pressure matching). Matching by pressure alone gives ridges that stand above the
+     (`--wind-tf-depth`, 0 = pressure matching). In valleys more than half that depth below the source surface,
+     the blending layer is deepened to twice the depth of the valley, so the lookup stays monotonic. Matching by pressure alone gives ridges that stand above the
      smoother source terrain free-atmosphere winds, and valleys below it the lowest source wind, which shows up as
      sharp, terrain-shaped patches once model-level input resolves the source's surface layer.
    - qv, qc, qi and ozone are remapped with a mass-conserving piecewise-linear method whose slopes are limited. This conserves column mass between the source surface and the model top, and creates no new extremes.
