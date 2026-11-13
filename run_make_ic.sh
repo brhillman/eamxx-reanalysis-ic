@@ -32,6 +32,7 @@
 #   HORIZ     bicubic (default) or bilinear
 #   TAG       output name suffix (default: today, YYYYMMDD)
 #   OUT       full output path (overrides WORK/GRID/TAG naming)
+#   INIT_ARGS extra make_ic.py init options, e.g. "--no-snow-to-ice --wind-tf-depth 0"
 #   ENV_SETUP script to source for python with numba and netCDF4
 #             (default: E3SM-Unified on Perlmutter; set empty to skip)
 #   TOOL_DIR  directory with make_ic.py (default: this script's directory or
@@ -109,7 +110,7 @@ lfs setstripe -c 32 -S 16M $(dirname ${out}) 2>/dev/null || true
 if [[ ! -e ${out}.status/config.json ]]; then
     python ${tool}/make_ic.py init --out ${out} --source ${source_type} \
         --atm ${atm} ${opts} \
-        --topo ${topo} --vert ${vert} --date ${date} --hour ${hour} --horiz ${horiz}
+        --topo ${topo} --vert ${vert} --date ${date} --hour ${hour} --horiz ${horiz} ${INIT_ARGS}
 fi
 
 time srun --cpu-bind=none python ${tool}/make_ic.py run --out ${out}
