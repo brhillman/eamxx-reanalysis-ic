@@ -43,7 +43,8 @@ def rd(ds, v, k=None):
 zm = rd(t, 'PHIS_d') / 9.80616
 s = nc.Dataset(glob.glob(os.path.join(mldir, '*.sfc.nc'))[0])
 la = s['latitude'][:].data; lo = s['longitude'][:].data
-ip = lambda f: RegularGridInterpolator((la[::-1], lo), f[::-1])(np.c_[lat[idx], lon[idx]])
+# periodic in longitude (columns between 359.75 and 360)
+ip = lambda f: RegularGridInterpolator((la[::-1], np.r_[lo, lo[0] + 360]), np.c_[f, f[:, :1]][::-1])(np.c_[lat[idx], lon[idx]])
 dz = zm - ip(np.squeeze(s['z'][:]) / 9.80616)
 a3 = nc.Dataset(glob.glob(os.path.join(mldir, '*.3d.nc'))[0])
 sp_era5 = ip(np.hypot(np.squeeze(a3['u'][0, -1]), np.squeeze(a3['v'][0, -1])))

@@ -3,13 +3,14 @@ max(D, 2*(psm - ps)) instead of a fixed D = 150 hPa).
 
 Usage:
     python valley_fix_compare.py ERA5_ML_DIR OUT_PREFIX LABEL BEFORE.nc AFTER.nc
+    (pressure-level ICs: set SP_FILE to the ERA5 surface file with sp)
 
 1. Identity: on 300 random runs of 100 columns, every variable is bit-identical
    except U, V in columns where the model surface is more than D/2 below the
    source surface (dp = ps_model - ps_ERA5 > 75 hPa), the only columns the fix
-   can touch. dp here uses bilinear ERA5 surface pressure, the tool bicubic,
-   so the checks allow a margin (60 hPa).
-2. Candidate columns (dp > 60 hPa, found from ps and ERA5 lnsp at the node),
+   can touch. dp uses the ERA5 surface pressure exactly as make_ic.py
+   interpolates it (bicubic on ln ps).
+2. Candidate columns (dp > 70 hPa),
    read in contiguous runs: which changed, by how much, and on which levels.
 3. Wind profile in the blending layer (pm > psm - max(D, 2 dp)), before and after:
      - distinct speed values per level (a folded lookup gives nearly constant wind)
@@ -34,7 +35,26 @@ a3 = nc.Dataset(glob.glob(os.path.join(mldir, '*.3d.nc'))[0])
 ab = np.loadtxt(glob.glob(os.path.join(mldir, '*.ab.txt'))[0])
 la = s['latitude'][:].data; lo = s['longitude'][:].data % 360
 lnsp = np.squeeze(s['lnsp'][:]).astype(float)
-ip = RegularGridInterpolator((la[::-1], np.r_[lo, lo[0] + 360]), np.c_[lnsp, lnsp[:, :1]][::-1])
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..'))
+import kernels as K
+# SP_FILE: for pressure-level sources, the ERA5 surface file with sp (what make_ic.py reads then)
+if os.environ.get('SP_FILE'):
+    sp_ds = nc.Dataset(os.environ['SP_FILE'])
+    lnps32 = np.ascontiguousarray(np.log(np.squeeze(sp_ds['sp'][:]).astype(np.float64)).astype(np.float32)[:, :, None])
+    la_raw = sp_ds['latitude'][:].data.astype(np.float64); lo_raw = sp_ds['longitude'][:].data.astype(np.float64)
+else:
+    lnps32 = np.ascontiguousarray(lnsp.astype(np.float32)[:, :, None])
+    la_raw = s['latitude'][:].data.astype(np.float64); lo_raw = s['longitude'][:].data.astype(np.float64)
+
+
+def ps_source(lat, lon):
+    """ERA5 surface pressure at the nodes exactly as make_ic.py computes it
+    (bicubic stencil on ln ps), so the 75 hPa threshold can be tested exactly."""
+    lat = np.ascontiguousarray(lat, np.float64); lon = np.ascontiguousarray(lon, np.float64)
+    jj, ii, wy, wx = K.horiz_stencil(lat, lon, float(la_raw[0]), float(la_raw[1] - la_raw[0]), la_raw.size,
+                                     float(lo_raw[0]), float(lo_raw[1] - lo_raw[0]), lo_raw.size, True)
+    out = np.empty((lat.size, 1)); K.interp_scalar(lnps32, jj, ii, wy, wx, False, out)
+    return np.exp(out[:, 0])
 B, A = nc.Dataset(fb), nc.Dataset(fa)
 n = A['ps'].shape[-1]
 P0 = float(A['P0'][...]) if 'P0' in A.variables else 1e5
@@ -58,15 +78,15 @@ for v in A.variables:
             if v in ('U', 'V'):
                 ps = np.asarray(A['ps'][0, st:st + width], float)
                 lat = np.asarray(A['lat'][st:st + width], float); lon = np.asarray(A['lon'][st:st + width], float) % 360
-                dp = ps - np.exp(ip(np.c_[lat, lon]))
+                dp = ps - ps_source(lat, lon)
                 diffcol = np.any(x != y, axis=-1)[0]
-                if np.any(diffcol & (dp <= 6000)):
-                    bad[v] = bad.get(v, 0) + int((diffcol & (dp <= 6000)).sum())
+                if np.any(diffcol & (dp <= 7500)):
+                    bad[v] = bad.get(v, 0) + int((diffcol & (dp <= 7500)).sum())
             else:
                 bad[v] = bad.get(v, 0) + 1
 print(f'## {label}\n')
 print(f'Identity check on {len(starts) * width:,} random columns: '
-      + ('all variables bit-identical except U/V in columns with dp > 60 hPa' if not bad else f'UNEXPECTED differences: {bad}'))
+      + ('all variables bit-identical except U/V in columns with dp > 75 hPa (= D/2)' if not bad else f'UNEXPECTED differences: {bad}'))
 
 # ---- 2. candidate columns ---------------------------------------------------
 cand = []
@@ -74,10 +94,10 @@ for c0 in range(0, n, 20_000_000):
     c1 = min(n, c0 + 20_000_000)
     ps = np.asarray(A['ps'][0, c0:c1], float)
     lat = np.asarray(A['lat'][c0:c1], float); lon = np.asarray(A['lon'][c0:c1], float) % 360
-    pe = np.exp(ip(np.c_[lat, lon]))
-    cand.append(c0 + np.nonzero(ps - pe > 6000)[0])
+    pe = ps_source(lat, lon)
+    cand.append(c0 + np.nonzero(ps - pe > 7000)[0])
 cand = np.concatenate(cand)
-print(f'columns with dp > 60 hPa (candidates): {cand.size:,} of {n:,}')
+print(f'columns with dp > 70 hPa (candidates): {cand.size:,} of {n:,}')
 if cand.size == 0:
     sys.exit()
 brk = np.nonzero(np.diff(cand) > 2000)[0]
@@ -94,7 +114,7 @@ for r in runs:
     lat = np.asarray(A['lat'][i0:i1], float)[sel]; lon = np.asarray(A['lon'][i0:i1], float)[sel] % 360
     ub, vb = (np.asarray(B[x][0, i0:i1, k0:], float)[sel] for x in ('U', 'V'))
     ua, va = (np.asarray(A[x][0, i0:i1, k0:], float)[sel] for x in ('U', 'V'))
-    pe = np.exp(ip(np.c_[lat, lon]))
+    pe = ps_source(lat, lon)
     for j in range(sel.size):
         rows.append((r[j], lat[j], lon[j], psm[j], pe[j], ub[j], vb[j], ua[j], va[j]))
 
@@ -106,10 +126,8 @@ dp = psm - pse
 pm = hyam[None, k0:] * P0 + hybm[None, k0:] * psm[:, None]
 dU = np.maximum(np.abs(ua - ub), np.abs(va - vb)).max(1)
 changed = dU > 0
-print(f'columns changed: {changed.sum():,}; smallest dp among them {dp[changed].min() / 100:.1f} hPa; '
-      f'columns with dp > 80 hPa unchanged: {(~changed & (dp > 8000)).sum():,}')
-print('(dp here uses bilinear ERA5 surface pressure; the tool interpolates bicubically, so the 75 hPa '
-      'threshold is fuzzy by a few hPa in steep terrain)')
+print(f'columns changed: {changed.sum():,}; smallest dp among them {dp[changed].min() / 100:.2f} hPa; '
+      f'columns with dp > 75 hPa unchanged: {(~changed & (dp > 7500)).sum():,}')
 
 # ERA5 nearest-point profile for the target and the figure
 jj = np.abs(elat[None, :] - lat[:, None]).argmin(1)

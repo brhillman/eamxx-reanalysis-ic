@@ -39,9 +39,10 @@ declare -A ic=(
 order=(${ONLY:-newtool hiccup-fv2se hiccup-bilin newtool-pl newtool-vfix newtool-pl-vfix})
 case ${NE} in
     30)  wall=01:00:00 ;;
-    120) wall=06:00:00 ;;
+    120) wall=00:25:00 ;;   # measured: 86 s init + 178 s per simulated day on 8 pm-gpu nodes
     *)   wall=02:00:00 ;;
 esac
+wall=${WALL:-${wall}}
 for k in "${order[@]}"; do [[ -f ${ic[$k]} ]] || { echo "missing IC: ${ic[$k]}"; exit 1; }; done
 
 # Output streams (physics_pg2): hourly 2D, per-step ps and precipitation for
