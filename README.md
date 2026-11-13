@@ -159,3 +159,14 @@ The tests compare against analytic answers:
 - a south-to-north source grid starting at -180° (MERRA-2's layout) interpolates exactly
 - hybrid coefficients are recovered from level pressures, and non-hybrid levels are rejected
 - missing values below ground are filled correctly
+
+## Future considerations
+
+- **Consistency test against EAMxx.** `kernels.py` copies a few pieces of EAMxx
+  physics: the constants (RD, RV, G, molecular weights) and the Murphy–Koop
+  saturation vapour pressure over liquid. EAMxx is deliberately not a dependency
+  (it would need a full C++/Kokkos build). An optional test, given
+  `E3SM_ROOT`, could parse `physics_constants.hpp` and the saturation code, compare
+  them with the copies here, and fail on any drift. Output files could also record
+  the E3SM commit the constants were checked against.
+
