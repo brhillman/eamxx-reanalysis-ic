@@ -178,8 +178,8 @@ write times are summed from per-chunk log lines and divided by the 8 tasks.
   16 nodes. The new tool uses 8 nodes, one task per node. Node-hours are the fairer comparison of
   cost; wall time is what a user waits for.
 - **HICCUP bilinear is HICCUP at its best here.** It uses the latest code and a bilinear map; the
-  default conservative-map workflow was not timed on these grids. The earlier HICCUP x4 IC
-  (20260918) took more than a day, with more than 650 GB of temporary files.
+  default conservative-map workflow was not timed on these grids. The run time of the earlier
+  HICCUP x4 IC (20260918, made outside this project) is not known.
 - **One run each.** These are single runs on a shared filesystem (Perlmutter scratch), so I/O
   times vary from run to run. The fractions are more robust than the absolute times.
 - **Restarts.** HICCUP cannot resume after a failure. The new tool skips finished chunks when it is

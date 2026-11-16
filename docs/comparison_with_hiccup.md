@@ -372,8 +372,7 @@ A detailed breakdown, including how much of HICCUP's time is I/O, is in
   grid size was wrong. Most of the time is spent outside the column work: start-up, reading the
   source, and the final `check`.
 - **HICCUP's steps.** At x4, combining the per-variable temporary files took 4 h and the state
-  adjustment 1 h. The earlier HICCUP x4 run (the 20260918 file) took more than a day, with over
-  650 GB of temporary files.
+  adjustment 1 h. Its temporary files had reached 650 GB four hours into the run.
 - **Restarts.** HICCUP cannot resume: a failure at hour 11 means starting over. The new tool
   skips finished chunks.
 - **Data cost.** ERA5 model levels for one time are 2.0 GB of GRIB, against 0.43 GB of pressure

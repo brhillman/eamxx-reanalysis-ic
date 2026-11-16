@@ -11,8 +11,8 @@ HICCUP, as used for the CONUS x2/x3/x4 ICs, works like this:
 - It interpolates horizontally on ERA5 pressure levels using a precomputed map
   file. The conservative maps gave blocky grid imprinting at km scales.
 - It works on files one variable at a time, rewriting every file at every step.
-  At x4 that meant more than a day on one node, more than 650 GB of temporary
-  files and about 300 GB of memory, with no way to restart.
+  At x4 that took 12 h on one node (after a separate 16-node map job), wrote about
+  10 TB to disk for a 1.1 TB IC, and used 413 GB of memory, with no way to restart.
 
 This tool instead:
 - Reads the source on its native **model levels** (pressure levels are
