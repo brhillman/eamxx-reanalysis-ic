@@ -357,6 +357,9 @@ unstable within seconds, before physics ran, at the steepest slope on the grid.
 
 ### Cost
 
+A detailed breakdown, including how much of HICCUP's time is I/O, is in
+[`performance_vs_hiccup.md`](performance_vs_hiccup.md).
+
 | Grid (columns) | HICCUP bilinear, IC step | HICCUP map step | new tool |
 |---|---|---|---|
 | 1024x2 (71.2M) | 2 h 43 min, 207 GB peak, 1 node | 16 nodes, 31–69 GB/node, minutes | 7 min 55 s on 8 nodes (1 min 50 s of column work), 35–49 GB/node |
