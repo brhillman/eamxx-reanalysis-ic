@@ -12,7 +12,7 @@ Status:
   separate method from input data ([Uniform grids](#uniform-grids-ne30-ne120-ne256)).
 - A fix for wind folding in deep valleys (a4229bf), with a before/after comparison on every grid
   ([Deep-valley wind fix](#deep-valley-wind-fix)).
-- 3-day EAMxx runs at ne30 and ne120 from each IC ([EAMxx test runs](#eamxx-test-runs-ne30-and-ne120)).
+- 3-day EAMxx runs at ne30, ne120 and ne256 from each IC ([EAMxx test runs](#eamxx-test-runs-ne30-ne120-ne256)).
 
 Current files carry the tag `20261113b` (with the fix). The `20261113` files (without it) are kept
 for comparison. The tables before the deep-valley section were computed on the `20261113` files.
@@ -71,11 +71,14 @@ It is not adopted because they look different. On 1024x2:
     - ne30, first step: global / high-terrain mean |dps/dt| of 47 / 52 Pa/h, against 55 / 84
       (HICCUP bilinear) and 70 / 185 (HICCUP default).
     - ne120: 47 / 48 Pa/h against 76–80 / 147–167 for all three pressure-level ICs.
+    - ne256: the gap is wider. Over hours 0–3 it is 56 / 47 Pa/h against 143–145 / 149–157,
+      and on day 3 it is 47 / 29 against 69 / 54–55.
   - The new tool on pressure levels behaves like HICCUP, so this comes from the input data.
-  - Forecast error against ERA5 starts lower (z500 RMSE at 0 h: 0.5 against 1.8–2.6 m at ne120).
+  - Forecast error against ERA5 starts lower (z500 RMSE at 0 h: 0.5 against 1.8–2.6 m at ne120,
+    0.6 against 1.7–2.3 m at ne256).
     By 6–12 h, all ICs reach the same error, and they stay together to 72 h.
   - Snow in cloud ice falls out on the first step: global precipitation is 1.3 against 0.15–0.2 mm/day.
-  - See [EAMxx test runs](#eamxx-test-runs-ne30-and-ne120).
+  - See [EAMxx test runs](#eamxx-test-runs-ne30-ne120-ne256).
 - **A fix for deep valleys.** The terrain-following wind blending folded where the model surface
   lies more than about 125 hPa below ERA5's, which gave a constant wind through the blending layer.
   This affected 1,761 columns at x4, 1,514 of them in the Cascades and Sierra Nevada. The blending
@@ -619,7 +622,7 @@ and at x4 55,938 and 73,880 (500 and 1,014 of them folded before). Mean maximum 
 are 0.4–0.6 m/s. Wyoming has no columns this deep. The x3 crash site is
 not among them.
 
-**Effect in EAMxx.** Each ne30 and ne120 test run ([below](#eamxx-test-runs-ne30-and-ne120)) was
+**Effect in EAMxx.** Each ne30 and ne120 test run ([below](#eamxx-test-runs-ne30-ne120-ne256)) was
 repeated from the fixed ICs. The fix changes the forecast far less than the choice of IC does:
 - z500 differs from the unfixed run by 0.04–0.07 m RMS at 6 h and 1.3–3.1 m at 72 h. By then,
   that is chaotic growth from a small perturbation.
@@ -627,26 +630,32 @@ repeated from the fixed ICs. The fix changes the forecast far less than the choi
 - Surface-pressure tendencies, precipitation and the column-integrated fields agree with the
   unfixed runs to the last digit shown.
 
-## EAMxx test runs (ne30 and ne120)
+## EAMxx test runs (ne30, ne120, ne256)
 
 ### Setup
 
 `scripts/uniform/run_ictest_pm.sh` runs out-of-the-box F2010-SCREAMv1 on Perlmutter GPUs:
-- grids `ne30pg2_ne30pg2` and `ne120pg2_ne120pg2`;
+- grids `ne30pg2_ne30pg2`, `ne120pg2_ne120pg2` and `ne256pg2_ne256pg2`;
 - 3 days from 2011-05-19 18Z;
 - source `conus200/production` (b85cf4de76).
 
-Only the IC differs between runs. There are six: the four uniform-grid ICs, plus the two new-tool
-ICs again with the deep-valley fix. SST is the compset's climatology, the same in every run,
+Only the IC differs between runs. At ne30 and ne120 there are six: the four uniform-grid ICs, plus
+the two new-tool ICs again with the deep-valley fix. At ne256 there are only the four, all from
+before the fix (tag `20261113`), the same ICs as the first four runs at the other grids. The fix
+changes 227 ne256 columns and none of them had folded (ne30: 12 folded), so its effect there
+should be smaller than the negligible one at ne30. SST is the compset's climatology, the same in every run,
 because there is no 2011 SST file on Perlmutter. The runs are scored against ERA5 analyses every
 6 h (`scripts/uniform/request_era5_verif.py`, `scripts/uniform/ictest_analysis.py`).
 
 Cost:
 - ne30: about 4 min per run.
 - ne120: 86 s of initialisation plus 178 s per simulated day on 8 nodes, about 1.3 SYPD.
+- ne256: about 105 s of initialisation plus 369 s per simulated day on 32 nodes (128 GPUs), about
+  0.64 SYPD. Each run took 21 min of wall time, about 11 node-hours.
 
 Full output: [`results/ictest.ne30.md`](results/ictest.ne30.md),
-[`results/ictest.ne120.md`](results/ictest.ne120.md).
+[`results/ictest.ne120.md`](results/ictest.ne120.md),
+[`results/ictest.ne256.md`](results/ictest.ne256.md).
 
 ### Initial adjustment
 
@@ -659,7 +668,18 @@ Mean |dps/dt| between physics steps (Pa/h), global / over terrain above 1500 m:
 | HICCUP bilinear | 55 / 84 | 65 / 57 | 44 / 28 | 77 / 147 | 107 / 101 | 59 / 43 |
 | HICCUP default | 70 / 185 | 76 / 94 | 47 / 32 | 80 / 167 | 109 / 110 | 59 / 44 |
 
+ne256:
+
+| IC | first step | hours 0–3 | hours 3–24 | day 3 |
+|---|---|---|---|---|
+| new tool | 51 / 63 | 56 / 47 | 54 / 39 | 47 / 29 |
+| new tool, pressure levels | 97 / 242 | 143 / 157 | 122 / 108 | 69 / 54 |
+| HICCUP bilinear | 99 / 229 | 144 / 149 | 123 / 109 | 69 / 54 |
+| HICCUP default | 100 / 226 | 145 / 155 | 124 / 109 | 69 / 55 |
+
 ![ne120 runs: |dps/dt| (global and high terrain), global precipitation, z500 and SLP RMSE against ERA5, and global TQV](figures/ictest.ne120.png)
+
+![ne256 runs, same panels](figures/ictest.ne256.png)
 
 - **At start-up, ordering matches the IC diagnostics.** Over high terrain at ne30 the first-step
   tendency is 185 Pa/h from HICCUP default, 84 from HICCUP bilinear, 73 from the new tool on
@@ -675,21 +695,26 @@ Mean |dps/dt| between physics steps (Pa/h), global / over terrain above 1500 m:
     from model levels.
   - Whatever the cause, it comes from the input data. The new tool on pressure levels tracks
     HICCUP bilinear to within a few Pa/h.
+- **The gap grows with resolution.** In hours 0–3 the pressure-level ICs are 1.3–1.6 times the
+  model-level IC's global |dps/dt| at ne30, 2.1–2.2 times at ne120 and 2.6 times at ne256. The
+  model-level IC stays at 48–56 Pa/h at all three resolutions. At ne256 the three
+  pressure-level ICs, including HICCUP default, are almost indistinguishable: once the grid is
+  finer than ERA5, HICCUP's conservative map copies cell values much as bilinear does.
 - **Little difference in forecast skill.** RMSE against ERA5 starts lowest from the model-level
   IC (ne120, 0 h: z500 0.5 against 1.8–2.6 m; SLP 1.8 against 2.2–2.5 hPa). By 6–12 h every run
   reaches about the same error, and they stay within a few percent of each other to 72 h (ne120
-  z500: 23.4–23.6 m). A 3-day forecast from one date cannot separate the ICs on skill. Model error,
+  z500: 23.4–23.6 m; ne256: 22.8–23.1 m). A 3-day forecast from one date cannot separate the ICs on skill. Model error,
   not the IC, dominates after the first half day.
 
 ### Condensate and precipitation
 
-| IC | first-step precipitation, ne30 / ne120 (mm/day) | IWP at 0 h → 6 h, ne120 (g/m²) |
+| IC | first-step precipitation, ne30 / ne120 / ne256 (mm/day) | IWP at 0 h → 6 h, ne120 / ne256 (g/m²) |
 |---|---|---|
-| new tool (snow in `qi`) | 1.31 / 1.29 | 69.0 → 38.1 |
-| new tool, pressure levels | 0.20 / 0.15 | 22.5 → 36.6 |
-| HICCUP bilinear | 0.19 / 0.14 | 22.5 → 38.0 |
-| HICCUP default | 0.15 / 0.14 | 22.5 → 37.9 |
-| ERA5 (hours 0–6) | 2.93 / 2.95 | 22.6 → 22.0 |
+| new tool (snow in `qi`) | 1.31 / 1.29 / 1.18 | 69.0 → 38.1 / 68.9 → 41.1 |
+| new tool, pressure levels | 0.20 / 0.15 / 0.31 | 22.5 → 36.6 / 22.5 → 39.6 |
+| HICCUP bilinear | 0.19 / 0.14 / 0.26 | 22.5 → 38.0 / 22.5 → 40.8 |
+| HICCUP default | 0.15 / 0.14 / 0.26 | 22.5 → 37.9 / 22.5 → 40.8 |
+| ERA5 (hours 0–6) | 2.93 / 2.95 / 2.95 | 22.6 → 22.0 / 22.6 → 22.0 |
 
 - **Snow in cloud ice.** The model-level ICs carry ERA5 snow in `qi`. On the first step it falls
   out, giving about 1.3 mm/day of global precipitation, against 0.15–0.2 for the ICs without snow.
@@ -698,8 +723,9 @@ Mean |dps/dt| between physics steps (Pa/h), global / over terrain above 1500 m:
   - The pressure-level ICs carry no snow, because the ERA5 pressure-level file (HICCUP's download)
     does not include `cswc`, although ERA5 provides it. So the difference between the two new-tool
     rows is the snow choice as well as the input.
-- **Precipitation spin-up is the model's.** Every run starts at 0.6–1.2 mm/day over the first 6 h,
-  against ERA5's 2.9. It reaches 3.1–3.3 mm/day by day 3, the same from every IC.
+- **Precipitation spin-up is the model's.** Every run starts at 0.6–1.4 mm/day over the first 6 h,
+  against ERA5's 2.9. It reaches 3.1–3.3 mm/day by day 3, the same from every IC. At ne256 the
+  6-hour means are 1.28–1.36 mm/day from every IC: the snow burst adds less than 0.1 mm/day to them.
 
 ## Tradeoffs: what this tool gives up
 
@@ -746,7 +772,7 @@ Two open questions from the uniform runs:
 - **The cause of the lasting |dps/dt| difference.** The likely candidate is the warm top levels.
   It could be tested with a pressure-level IC whose top levels are taken from model levels.
 - **Snow in cloud ice** for the CONUS runs. It gives a first-step precipitation burst and no
-  lasting effect at ne30 and ne120. This is a choice to make on purpose.
+  lasting effect at ne30, ne120 and ne256. This is a choice to make on purpose.
 
 ## Reproducing
 
