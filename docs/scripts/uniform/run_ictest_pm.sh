@@ -13,6 +13,7 @@
 # Usage (Perlmutter login node; CIME needs python >= 3.9: module load cray-python/3.11.7):
 #   NE=30  bash run_ictest_pm.sh            # create, build, submit all three
 #   NE=120 STOP_DAYS=3 bash run_ictest_pm.sh
+#   NE=256 NTASKS=128 ONLY=newtool bash run_ictest_pm.sh   # 32 nodes
 #   ONLY=newtool NE=30 bash run_ictest_pm.sh   # just one IC (it is then the base)
 #   ONLY=newtool-pl BASE=<caseroot of the built newtool case> NE=30 bash run_ictest_pm.sh
 # ==============================================================================
@@ -40,9 +41,11 @@ order=(${ONLY:-newtool hiccup-fv2se hiccup-bilin newtool-pl newtool-vfix newtool
 case ${NE} in
     30)  wall=01:00:00 ;;
     120) wall=00:25:00 ;;   # measured: 86 s init + 178 s per simulated day on 8 pm-gpu nodes
+    256) wall=01:00:00 ;;   # estimate: 25-35 min for 3 days on 32 nodes (NTASKS=128)
     *)   wall=02:00:00 ;;
 esac
 wall=${WALL:-${wall}}
+ntasks=${NTASKS:-}   # e.g. NTASKS=128: 32 pm-gpu nodes (4 GPUs each); default: CIME's layout
 for k in "${order[@]}"; do [[ -f ${ic[$k]} ]] || { echo "missing IC: ${ic[$k]}"; exit 1; }; done
 
 # Output streams (physics_pg2): hourly 2D, per-step ps and precipitation for
@@ -133,6 +136,7 @@ for k in "${order[@]}"; do
         ${e3sm}/cime/scripts/create_clone --case ${caseroot} --clone ${base} --keepexe
     fi
     cd ${caseroot}
+    if [[ ${caseroot} == ${base} && -n ${ntasks} ]]; then ./xmlchange NTASKS=${ntasks}; fi
     ./xmlchange RUN_STARTDATE=2011-05-19,START_TOD=64800
     ./xmlchange STOP_OPTION=ndays,STOP_N=${stop_days},REST_OPTION=never,DOUT_S=FALSE
     ./xmlchange JOB_WALLCLOCK_TIME=${wall} --subgroup case.run
